@@ -2,8 +2,9 @@ import Fastify from 'fastify';
 import { randomBytes } from 'node:crypto';
 import { createStore, type Decision } from './store.ts';
 import { parcelStatus } from '../../../packages/contracts/src/ownership.ts';
+import { investigationRoutes } from './investigation-routes.ts';
 
-export function buildServer(options: { port: number; journal?: string }) {
+export function buildServer(options: { port: number; journal?: string; investigationDb?: string; pilotPath?: string }) {
   const app = Fastify({ bodyLimit: 16384, ajv: { customOptions: { removeAdditional: false } } });
   const store = createStore(options.journal);
   const token = randomBytes(32).toString('hex');
@@ -21,6 +22,7 @@ export function buildServer(options: { port: number; journal?: string }) {
       return reply.code(403).send({ error: 'Local session token required' });
     }
   });
+  investigationRoutes(app, options);
   app.get('/api/session', () => ({ token, mode: 'synthetic', persistence: options.journal ? 'local-journal' : 'memory' }));
   app.get('/api/parcels', () => ({ parcels: store.parcels }));
   app.get('/api/decisions', () => ({ decisions: store.decisions }));

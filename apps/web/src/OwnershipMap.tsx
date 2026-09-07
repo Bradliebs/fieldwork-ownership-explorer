@@ -29,7 +29,7 @@ function featureData(parcels: Parcel[]): FeatureCollection {
   })) };
 }
 
-export function OwnershipMap({ parcels, allParcels, pilot, selected, onSelect }: { parcels: Parcel[]; allParcels: Parcel[]; pilot: boolean; selected: string | null; onSelect: (id: string) => void }) {
+export function OwnershipMap({ parcels, allParcels, pilot, selected, onSelect, snapshot = false }: { parcels: Parcel[]; allParcels: Parcel[]; pilot: boolean; selected: string | null; onSelect: (id: string) => void; snapshot?: boolean }) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapInstance | null>(null);
   const onSelectRef = useRef(onSelect);
@@ -97,17 +97,17 @@ export function OwnershipMap({ parcels, allParcels, pilot, selected, onSelect }:
     for (const layer of baseLayers) if (map.current?.getLayer(layer)) map.current.setLayoutProperty(layer, 'visibility', showBasemap ? 'visible' : 'none');
     for (const layer of parcelLayers) map.current?.setLayoutProperty(layer, 'visibility', showParcels ? 'visible' : 'none');
   }, [showBasemap, showParcels, ready]);
-  return <section className={`map-area ${pilot ? 'pilot-map' : ''}`} aria-label={pilot ? 'Bristol parcel map' : 'Synthetic parcel map'}>
+  return <section className={`map-area ${pilot ? 'pilot-map' : ''}`} aria-label={snapshot ? 'Saved parcel map' : pilot ? 'Bristol parcel map' : 'Synthetic parcel map'}>
     <div className="map-canvas" ref={container} data-testid="map" data-ready={ready} />
-    <div className="map-caption"><span className="live-dot" /> {pilot ? 'BRISTOL HARBOURSIDE' : 'FIXTURE AREA'} <span>{allParcels.length} {pilot ? 'INSPIRE polygons' : 'fictional parcels'}</span></div>
+    <div className="map-caption"><span className="live-dot" /> {snapshot ? 'SAVED PARCEL' : pilot ? 'BRISTOL HARBOURSIDE' : 'FIXTURE AREA'} <span>{allParcels.length} {pilot || snapshot ? 'INSPIRE polygons' : 'fictional parcels'}</span></div>
     {pilot && <div className="map-layers"><label><input type="checkbox" checked={showBasemap} onChange={event => setShowBasemap(event.target.checked)} />Basemap</label><label><input type="checkbox" checked={showParcels} onChange={event => setShowParcels(event.target.checked)} />Parcels</label></div>}
     <div className="map-tools">
       <button title="Zoom in" aria-label="Zoom in" onClick={() => map.current?.zoomIn()}><Plus size={18} /></button>
       <button title="Zoom out" aria-label="Zoom out" onClick={() => map.current?.zoomOut()}><Minus size={18} /></button>
       <button title="Fit all parcels" aria-label="Fit all parcels" onClick={() => { const extent = parcelBounds(allParcels); if (extent) map.current?.fitBounds(extent, { padding: 50 }); }}><Maximize2 size={17} /></button>
     </div>
-    <div className="map-legend">{pilot ? <><span><i className="boundary-key" />Indicative freehold</span><span><i className="selection-key" />Selected</span></> : ['verified', 'candidate', 'ambiguous', 'unknown'].map(status => <span key={status}><i className={status} />{status}</span>)}</div>
-    <div className="map-attribution">{pilot ? <><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">(c) OpenStreetMap contributors / ODbL</a><span> | </span><a href="https://use-land-property-data.service.gov.uk/datasets/inspire/#conditions" target="_blank" rel="noreferrer">HMLR &amp; OS (c) Crown copyright and database rights 2026 / OS AC0000851063</a><span> | </span><a href="/pilot/manifest.json" target="_blank" rel="noreferrer">Full attribution</a></> : 'Synthetic geometry. No legal boundaries or real ownership.'}</div>
+    <div className="map-legend">{pilot || snapshot ? <><span><i className="boundary-key" />Indicative freehold</span><span><i className="selection-key" />Selected</span></> : ['verified', 'candidate', 'ambiguous', 'unknown'].map(status => <span key={status}><i className={status} />{status}</span>)}</div>
+    <div className="map-attribution">{pilot ? <><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">(c) OpenStreetMap contributors / ODbL</a><span> | </span><a href="https://use-land-property-data.service.gov.uk/datasets/inspire/#conditions" target="_blank" rel="noreferrer">HMLR &amp; OS (c) Crown copyright and database rights 2026 / OS AC0000851063</a><span> | </span><a href="/pilot/manifest.json" target="_blank" rel="noreferrer">Full attribution</a></> : snapshot ? 'HMLR / OS. Full source attribution below. Indicative extent only.' : 'Synthetic geometry. No legal boundaries or real ownership.'}</div>
     {error && <div className="map-error" role="alert">Map data error: {error}. Parcel records remain available in the list.</div>}
   </section>;
 }

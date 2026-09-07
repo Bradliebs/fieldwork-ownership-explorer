@@ -1,0 +1,68 @@
+{
+  "period": "2026-07",
+  "importedAt": "2026-09-07T19:13:39.499Z",
+  "pilotSha256": "74ee3730d5cfbfaaa8f17361d292644d84cc7bb34448bbcb9675fef95e58fcd7",
+  "sources": [
+    {
+      "url": "https://price-paid-data.publicdata.landregistry.gov.uk/pp-inspire-id-lookup-jul-2026.csv",
+      "sha256": "63c56c4bd6dfdbfaf3d78c5ad94adcc50593d1315c09713cb2b6b653a984d291"
+    },
+    {
+      "url": "https://price-paid-data.publicdata.landregistry.gov.uk/pp-monthly-update-new-version.csv",
+      "sha256": "f92fff441ecbeba0f4891524fc968c8d336a4dff5ecadcd3ce4fe73f500b781c"
+    }
+  ],
+  "attribution": "Contains HM Land Registry data (c) Crown copyright and database right 2026. This data is licensed under the Open Government Licence v3.0.",
+  "licence": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+  "addressConditions": "https://www.gov.uk/government/statistical-data-sets/price-paid-data-downloads#using-or-publishing-our-price-paid-data",
+  "records": [
+    {
+      "transactionId": "{5834E4E9-921C-29C7-E063-4804A8C015BC}",
+      "inspireIds": [
+        "19675518"
+      ],
+      "price": 800000,
+      "date": "2026-03-02",
+      "address": "24, BROAD STREET, BRISTOL, BS1 2HG",
+      "propertyType": "Other",
+      "newBuild": false,
+      "category": "Additional"
+    },
+    {
+      "transactionId": "{5834E4E8-6E62-29C7-E063-4804A8C015BC}",
+      "inspireIds": [
+        "19626287"
+      ],
+      "price": 1400000,
+      "date": "2026-02-06",
+      "address": "11, CHARLOTTE STREET SOUTH, BRISTOL, BS1 5QB",
+      "propertyType": "Semi-detached",
+      "newBuild": false,
+      "category": "Standard"
+    },
+    {
+      "transactionId": "{7C2D0700-FE48-4963-E053-6B04A8C07B97}",
+      "inspireIds": [
+        "19619105"
+      ],
+      "price": 1950000,
+      "date": "2018-10-10",
+      "address": "25, QUEENS ROAD, CLIFTON, BRISTOL, BS8 1QE",
+      "propertyType": "Other",
+      "newBuild": false,
+      "category": "Additional"
+    },
+    {
+      "transactionId": "{25EA59FA-6F42-4D50-E050-A8C0630562D0}",
+      "inspireIds": [
+        "19681003"
+      ],
+      "price": 2300000,
+      "date": "2015-11-10",
+      "address": "55, CORN STREET, BRISTOL, BS1 1HT",
+      "propertyType": "Other",
+      "newBuild": false,
+      "category": "Additional"
+    }
+  ]
+}

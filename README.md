@@ -1,6 +1,6 @@
 ---
 title: Fieldwork Ownership Explorer
-description: Local Bristol INSPIRE parcel pilot with offline geographic context and an isolated synthetic ownership-review demo.
+description: Local Bristol landowner contact and construction consent cases with source snapshots, private evidence and printable requests and reports.
 ---
 
 ## Current implementation
@@ -18,6 +18,142 @@ append-only journal. Real parcels cannot inherit those reviews. Real-data search
 currently supports INSPIRE IDs, not addresses or owners that have not been loaded.
 The local OpenStreetMap extract supplies roads, buildings, water and parks.
 Map layers and fonts work without external network requests after installation.
+
+## Recorded sales
+
+Enable Recorded sales only in Explore to find the four pilot parcels linked to
+four transactions in HMLR's July 2026 publication. The Recorded sales section
+shows the transaction price, sale date, address, property type and identifiers.
+July is the publication/update period, not the sale month: this extract includes
+sales dated 2015, 2018 and 2026. It is not a complete historical sale register.
+
+The join uses the official transaction-to-INSPIRE lookup, not address matching or
+geocoding. Original parcel geometry and ownership links are unchanged. A price
+belongs to a transaction and must not be allocated to each associated polygon.
+Sale records do not identify the current owner or establish a title number.
+No match means no linked record in this release, not that a property never sold.
+
+The generated [public/pilot/sales.json](public/pilot/sales.json) records source
+URLs, SHA-256 checksums, attribution and the pilot file checksum. It is included
+in the build. New investigations capture the relevant sale evidence and source
+metadata; existing investigations are not backfilled. Reports and parcel GeoJSON
+exports include the captured or current sale evidence, respectively, separately
+from ownership. Synthetic records never receive it.
+
+The lookup is OGL-licensed. Price Paid address fields have separate conditions;
+retain attribution and review permitted use before redistributing exports.
+Do not use Price Paid addresses as a commercial landowner contact list. The app
+never copies these addresses into party contact records:
+
+* [INSPIRE lookup and terms](https://www.gov.uk/government/statistical-data-sets/transaction-unique-identifier-and-inspire-id-look-up-table-dataset)
+* [Price Paid Data conditions](https://www.gov.uk/government/statistical-data-sets/price-paid-data-downloads#using-or-publishing-our-price-paid-data)
+
+To regenerate this July-only extract, stop the server and run:
+
+```powershell
+node --import tsx import-sales.ts
+npm run build
+npm run dev
+```
+
+The importer downloads official CSVs and archives them by checksum under
+`.local/sales-inputs`. It validates identifiers, preserves multi-polygon
+transactions, uses changed records and excludes deletions. Missing linked
+transactions or conflicting rows stop the import before replacing the extract.
+The rolling Price Paid URL is guarded by checking HMLR's current release page;
+once it advances beyond July 2026, this importer refuses to run. Later monthly
+releases need a versioned import workflow, not relabelling this extract.
+Changing the pilot file invalidates its sales extract and requires reimport.
+There are no runtime external requests, paid calls, UPRN imports or corporate
+ownership matching in this milestone.
+
+## Saved investigations
+
+1. Select a real Bristol parcel in Explore and choose Start investigation.
+2. Enter an investigation name, question and analyst notes, then Save investigation.
+3. Reopen saved work from Investigations, including after restarting the server.
+4. Choose Report after saving, then Print / Save as PDF in the report window.
+
+Each investigation currently holds one parcel. Creation captures the authoritative
+server parcel, source manifest and release checksum. Later edits preserve that
+snapshot; refreshing the pilot does not rewrite existing investigations. Saves
+and their audit entries share a SQLite transaction. Revision conflicts reject
+stale edits without overwriting saved work, and the editor retains the unsaved
+draft. Retrying an identical creation request with the same operation ID returns
+the existing record rather than creating a duplicate.
+
+Reports use the latest saved revision, not unsaved text. They contain a north-up
+parcel outline, source facts, analyst notes, title assessments, relevant parties,
+correspondence, consent decisions and evidence references. The outline has no
+basemap or survey scale. INSPIRE IDs are not title numbers. Case assessments do
+not change the source parcel's unknown ownership status or its exported links.
+Synthetic parcels cannot create investigations. There is no automated owner
+lookup, automatic title linking or multi-parcel case support.
+
+## Construction consent workflow
+
+1. Start an investigation from the relevant real parcel. In Project, record the
+   project, requesting company/contact, reply details and retention review date.
+2. Obtain current title register and plan evidence through an authorised source,
+   such as [HM Land Registry's property information service](https://www.gov.uk/search-property-information-land-registry).
+   In Titles, record each title number, tenure, evidence reference/date and its
+   relationship to the parcel. A checked assessment requires a named reviewer,
+   review date and extent assessment. An INSPIRE outline alone is not enough.
+3. In Parties, record the relevant proprietor, leaseholder, occupier or agent and
+   related title. Record where their contact details came from, the permitted-use
+   assessment and check date before approving commercial contact use. Separately
+   record evidence of authority to give the requested permission.
+4. In Requests, name the party, proposed activities, exact land scope/plan,
+   proposed dates and conditions. Save, then choose Request draft to print or
+   save an unsent letter as PDF. Include the referenced scope plan when sending.
+5. Send the request outside the application. Only then record its sent date and
+   awaiting-response status. Log emails, letters, calls and meetings in
+   Correspondence, with source references where available.
+6. Upload the response and supporting evidence in Documents after saving the
+   case. Use the displayed `doc:<id>` reference in the relevant evidence field,
+   or record a reference to your controlled document-management system.
+7. Record the decision, response date, signatory, scope, validity and conditions.
+   Granted consent requires a checked title covering all or part of the parcel,
+   authority evidence with a reviewer/date, and response evidence. Refusals and
+   revocations also require response evidence. The display distinguishes future,
+   currently effective and expired grants without overwriting the saved decision.
+8. Save and generate the case Report. Confirm all relevant interests, permissions
+   and conditions before any access or works; one recorded grant is not a
+   clearance to start work.
+
+These are team-entered assessments, not independent ownership verification or
+legal advice. The app cannot determine whether a document establishes authority,
+whether every rights-holder has been identified, or whether a consent is legally
+sufficient. It does not send correspondence, collect signatures or obtain consent.
+Request drafts are marked DRAFT / NOT SENT and do not change request status.
+Reports contain confidential contact details and should have controlled recipients.
+
+Documents accept PDF, PNG, JPEG or plain text, up to 3 MB each and 50 per case.
+They are stored in SQLite, not the public asset directory, with a SHA-256 checksum
+and upload date. Downloads are case-scoped, attachment-only and not cached. Basic
+file-type checks are not malware scanning; inspect files through your company's
+approved security process. There is no document preview or deletion control.
+Removed workflow records remain in the database audit history. The on-screen
+history lists revision, action and date, not a full historical-record viewer.
+
+Local investigations are stored in `.local/investigations.sqlite` using Node's
+built-in SQLite API. Node 24.13.1 emits an experimental SQLite warning. The database
+contains saved geometry, manifests, notes, contact and consent records, uploaded
+documents and edit history; it is not encrypted.
+Keep this local workspace and any reports within your intended access boundary.
+
+The first upgrade from the earlier investigation database creates
+`.local/investigations.sqlite.pre-consent-v2.bak` before a transactional schema
+migration. Existing notes, revisions and source snapshots are preserved; older
+cases receive an empty consent workflow. Migration and reopening the pre-upgrade
+backup are covered by automated tests. This one-time backup is not ongoing backup
+protection.
+
+For a manual backup, stop the app and copy the entire `.local` directory to a
+separate protected location. Retain the matching application and pilot assets as
+well. Never replace a database while the app is running. Scheduled backups,
+operational restore drills, archival and deletion controls remain pending.
+The retention review date is a recorded field, not a reminder or deletion job.
 
 ## Pilot data and limitations
 
@@ -87,8 +223,9 @@ for writes. Reviewer names are audit labels, not authenticated team identities.
 The demo journal is stored under the ignored `.local` directory. Back it up before
 changing fixture identifiers. A corrupt or incompatible journal stops startup
 rather than discarding reviews. Do not edit it while the server is running.
-This small synchronous journal is for the synthetic preview, not the national
-database; production persistence will use PostgreSQL transactions and migrations.
+This small synchronous journal is for the synthetic preview. Real investigations
+use a separate local SQLite database. PostgreSQL/PostGIS is deferred until a
+larger serving or collaboration requirement justifies it.
 
 ## Verification
 
@@ -101,17 +238,23 @@ npm run test:e2e
 ```
 
 Browser tests start an isolated server on port 4318 with temporary synthetic
-review storage. They verify rendered parcel pixels, search, persistent reviews,
+review storage and a temporary investigation database. They verify rendered parcel pixels, search, persistent reviews,
 joint proprietors, downloads and 1440x900/390x844 layouts. Pilot tests independently
 check water pixels, parcel-layer changes, offline requests, source metadata and
-dataset isolation. Test output is ignored.
+dataset isolation. Investigation tests cover save/reopen, stale edits, escaped
+reports, PDF generation and synthetic-data isolation. Store/API tests check
+restart persistence, retry-safe creation and rollback when audit writes fail.
+Consent tests cover required evidence, authority, contact-use approval, date
+validation, migration/backup reopening, private document access, revision
+conflicts, unsent request drafts and the complete desktop/mobile case journey.
+Test output is ignored.
 
 ## Remaining delivery gates
 
 1. Confirm source-specific licence acceptance, permitted use, attribution and
    export recipients before importing restricted ownership data. CCOD prohibits direct marketing.
-2. Configure native PostgreSQL/PostGIS and GDAL, validate source CRS transforms,
-   and test a sample GeoPackage in David's installed ArcGIS Pro.
+2. Add multi-parcel investigations if required. Validate source CRS transforms and test
+   a sample GeoPackage in David's installed ArcGIS Pro before claiming compatibility.
 3. Implement normalized release-aware persistence, source adapters, staged atomic
    imports, cross-authority deduplication and data lifecycle handling.
 4. Add evidence-led candidate matching, wider basemap coverage and indexed
@@ -119,6 +262,6 @@ dataset isolation. Test output is ignored.
 5. Validate a real authority pilot, backup/restore, licence revocation and hardware
    performance before national rollout. No national matching coverage is promised.
 
-Private individual ownership, paid title links, public hosting and remote team
-access remain outside scope. Corporate-data ingestion and GeoPackage controls are
+Automated private-individual ownership lookup, paid title-link integration, public
+hosting and remote team access remain outside scope. Corporate-data ingestion and GeoPackage controls are
 not shown as working features in this preview.
