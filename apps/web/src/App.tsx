@@ -1,19 +1,11 @@
-import { useDeferredValue, useEffect, useState } from 'react';
+import { useDeferredValue, useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, ArrowLeft, ArrowUpRight, Check, ChevronRight, Database, FileText, FolderOpen, Layers, Map, Search, ShieldCheck, X } from 'lucide-react';
 import { OwnershipMap } from './OwnershipMap.tsx';
 import { Investigations, type InvestigationDraft } from './Investigations.tsx';
 import { SalesEvidence } from './SalesEvidence.tsx';
+import { api } from './api.ts';
 import { salesForParcel, type SalesRelease } from '../../../packages/contracts/src/sales.ts';
 import { parcelStatus, type Parcel, type PilotManifest, type ReviewStatus } from '../../../packages/contracts/src/ownership.ts';
-
-async function api<Value>(url: string, options?: RequestInit): Promise<Value> {
-  const response = await fetch(url, options);
-  if (!response.ok) {
-    const failure = await response.json();
-    throw new Error(failure.error ?? failure.message ?? 'Request failed');
-  }
-  return response.json() as Promise<Value>;
-}
 
 export function App() {
   const [dataset, setDataset] = useState<'pilot' | 'demo'>('pilot');
@@ -37,6 +29,7 @@ export function App() {
     setInvestigationDirty(false); setInvestigationDraft(null); setView(next);
   }
   const [error, setError] = useState('');
+  const errorRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [reviewer, setReviewer] = useState('');
@@ -47,7 +40,7 @@ export function App() {
     setLoading(true); setError('');
     try {
       const [session, data, status, saleData] = await Promise.all([
-        api<{ token: string }>('/api/session', { signal }), api<{ parcels: Parcel[]; manifest?: PilotManifest }>(dataset === 'pilot' ? '/pilot/parcels.json' : '/api/parcels', { signal }), api<{ gates: string[] }>('/api/status', { signal }),
+        api<{ token: string }>('/api/session', { signal }), api<{ parcels: Parcel[]; manifest?: PilotManifest }>(dataset === 'pilot' ? '/api/pilot-parcels' : '/api/parcels', { signal }), api<{ gates: string[] }>('/api/status', { signal }),
         dataset === 'pilot' ? api<{ sales: SalesRelease | null }>('/api/pilot-sales', { signal }) : Promise.resolve({ sales: null }),
       ]);
       if (signal?.aborted) return;
@@ -64,6 +57,7 @@ export function App() {
     return () => controller.abort();
   }, [dataset]);
   useEffect(() => { setResultLimit(100); }, [deferredQuery, filter, interest, view, salesOnly]);
+  useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const visible = parcels.filter(parcel => {
     const haystack = [parcel.id, parcel.label, ...parcel.links.flatMap(link => [link.titleNumber ?? '', ...link.proprietors])].join(' ').toLowerCase();
     return haystack.includes(deferredQuery.trim().toLowerCase()) &&
@@ -113,11 +107,11 @@ export function App() {
       <select className="dataset-select" aria-label="Workspace dataset" value={view === 'investigations' ? 'pilot' : dataset} disabled={view === 'investigations'} onChange={event => { setDataset(event.target.value as 'pilot' | 'demo'); setView('map'); }}><option value="pilot">Bristol / INSPIRE</option><option value="demo">Synthetic review demo</option></select>
     </header>
     <div className="demo-banner"><span>{view === 'investigations' ? <><strong>Local investigations</strong> Saved Bristol parcel snapshots. Ownership not established. Not legal title extents.</> : dataset === 'pilot' ? <><strong>Bristol pilot extract</strong> Indicative freehold boundaries. Ownership not established. Not legal title extents.</> : <><strong>Synthetic preview</strong> Fictional parcels, organisations and evidence. No real ownership.</>}</span><span className="mono">{view === 'investigations' ? 'LOCAL STORAGE' : manifest?.published ?? 'BUILD 0.2'}</span></div>
-    {error && <div className="error-bar" role="alert">{error}<button onClick={() => void load()}>Reload records</button><button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
+    {error && <div className="error-bar" role="alert" tabIndex={-1} ref={errorRef}>{error}<button onClick={() => void load()}>Reload records</button><button aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
     {view === 'investigations' ? <Investigations draft={investigationDraft} token={token} onDirtyChange={setInvestigationDirty} onExplore={() => navigate('map')} /> : view === 'sources' ? <main className="sources-view">
       <div className="section-eyebrow">WORKSPACE / DATA</div><h1>Source register</h1><p className="muted">England and Wales <span className="separator">/</span> No national coverage loaded</p>
       <div className="source-summary"><div><strong>{parcels.length}</strong><span>{dataset === 'pilot' ? 'Real polygons' : 'Synthetic parcels'}</span></div><div><strong>{manifest ? 1 : 0}</strong><span>INSPIRE releases</span></div><div><strong>{gates.length}</strong><span>Open setup gates</span></div></div>
-      {manifest && <section className="pilot-source"><h2>{manifest.name}</h2><p>INSPIRE published {manifest.published}. OpenStreetMap snapshot {manifest.osm.published}. Neighbourhood extract only.</p><p>{manifest.attribution}</p><p>{manifest.osm.attribution}</p><p>{manifest.transform}</p><a href="/pilot/manifest.json" target="_blank" rel="noreferrer">Source manifest and checksums</a><span> / </span><a href={manifest.licence} target="_blank" rel="noreferrer">INSPIRE conditions</a><span> / </span><a href={manifest.osm.licence} target="_blank" rel="noreferrer">OpenStreetMap licence</a></section>}
+      {manifest && <section className="pilot-source"><h2>{manifest.name}</h2><p>INSPIRE published {manifest.published}. OpenStreetMap snapshot {manifest.osm.published}. Neighbourhood extract only.</p><p>{manifest.attribution}</p><p>{manifest.osm.attribution}</p><p>{manifest.transform}</p><a href="/api/pilot-release" target="_blank" rel="noreferrer">Source manifest and checksums</a><span> / </span><a href={manifest.licence} target="_blank" rel="noreferrer">INSPIRE conditions</a><span> / </span><a href={manifest.osm.licence} target="_blank" rel="noreferrer">OpenStreetMap licence</a></section>}
       <h2>Data readiness</h2><div className="gate-list">{gates.map((gate, index) => <div key={gate}><span className="gate-dot" />{dataset === 'pilot' && index === 0 ? 'Corporate ownership licences and imports' : gate}<span>Pending</span></div>)}</div>
       {dataset === 'pilot' && sales && <section><h2>Recorded sales</h2><p>{sales.records.length} transactions linked to the pilot / HMLR publication period {sales.period}. Sale dates may precede the publication period. Ownership remains unknown.</p><p>{sales.attribution}</p><a href={sales.addressConditions} target="_blank" rel="noreferrer">Price Paid Data conditions</a></section>}
       <h2>Planned sources</h2><div className="source-table">{[

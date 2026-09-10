@@ -83,6 +83,53 @@ test('conflicting investigation edit preserves draft and can reopen saved versio
   await other.close();
 });
 
+test('transient investigation creation retries safely without losing the draft', async ({ page }) => {
+  const operationIds: string[] = [];
+  await page.route('**/api/investigations', route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    operationIds.push(route.request().postDataJSON().operationId);
+    if (operationIds.length === 1) {
+      return route.fulfill({ status: 503, contentType: 'text/plain', body: 'Storage unavailable' });
+    }
+    return route.continue();
+  });
+
+  await page.goto('/');
+  await page.locator('.parcel-row').first().click();
+  await page.getByRole('button', { name: 'Start investigation', exact: true }).click();
+  await page.getByLabel('Investigation name', { exact: true }).fill('Retained field draft');
+  await page.getByLabel('Analyst notes').fill('Keep this text when local storage is unavailable.');
+  await page.getByRole('button', { name: 'Save investigation', exact: true }).click();
+
+  await expect(page.getByRole('status')).toContainText('Investigation saved. Revision 0');
+  await expect(page.getByLabel('Investigation name', { exact: true })).toHaveValue('Retained field draft');
+  await expect(page.getByLabel('Analyst notes')).toHaveValue('Keep this text when local storage is unavailable.');
+  expect(operationIds).toHaveLength(2);
+  expect(operationIds[1]).toBe(operationIds[0]);
+  await expect(page.getByRole('button', { name: /Retained field draft/ })).toHaveCount(1);
+});
+
+test('investigation creation supports keyboard activation and tab navigation', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.parcel-row').first().focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel('Parcel evidence')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Start investigation', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  const name = page.getByLabel('Investigation name', { exact: true });
+  await name.focus();
+  await page.keyboard.press('Control+A');
+  await page.keyboard.type('Keyboard investigation');
+  await page.keyboard.press('Tab');
+  await expect(page.getByLabel('Investigation question')).toBeFocused();
+  await page.keyboard.type('Can the core workflow be completed without a pointer?');
+
+  await page.getByRole('button', { name: 'Save investigation', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('status')).toContainText('Investigation saved. Revision 0');
+});
+
 test('investigations remain distinct from the synthetic demo', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('Workspace dataset').selectOption('demo');

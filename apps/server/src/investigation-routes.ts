@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { readFileSync } from 'node:fs';
 import { createHash, randomBytes } from 'node:crypto';
-import { resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { createInvestigationStore } from './investigation-store.ts';
 import { investigationReport } from './investigation-report.ts';
 import type { InvestigationEdit } from '../../../packages/contracts/src/investigation.ts';
@@ -15,6 +15,23 @@ export function investigationRoutes(app: FastifyInstance, options: { investigati
   const store = createInvestigationStore(options.investigationDb);
   app.addHook('onClose', async () => store.close());
   const pilotPath = options.pilotPath ?? resolve('public/pilot/parcels.json');
+  const pilotRoot = dirname(pilotPath);
+  app.get('/api/pilot-parcels', (_request, reply) => {
+    try { return JSON.parse(readFileSync(pilotPath, 'utf8')); }
+    catch { return reply.code(409).send({ error: 'Active parcel release is unavailable or invalid.' }); }
+  });
+  app.get('/api/pilot-basemap', (_request, reply) => {
+    try { return JSON.parse(readFileSync(join(pilotRoot, 'basemap.json'), 'utf8')); }
+    catch { return reply.code(409).send({ error: 'Active basemap release is unavailable or invalid.' }); }
+  });
+  app.get('/api/pilot-manifest', (_request, reply) => {
+    try { return JSON.parse(readFileSync(join(pilotRoot, 'manifest.json'), 'utf8')); }
+    catch { return reply.code(409).send({ error: 'Active source manifest is unavailable or invalid.' }); }
+  });
+  app.get('/api/pilot-release', (_request, reply) => {
+    try { return JSON.parse(readFileSync(join(pilotRoot, 'release.json'), 'utf8')); }
+    catch { return reply.code(409).send({ error: 'Active release descriptor is unavailable or invalid.' }); }
+  });
   app.get('/api/pilot-sales', (_request, reply) => {
     try { return { sales: readPilotSales(pilotPath) ?? null }; }
     catch { return reply.code(409).send({ error: 'Sales extract is invalid or belongs to a different pilot release. Reimport before using sale evidence.' }); }

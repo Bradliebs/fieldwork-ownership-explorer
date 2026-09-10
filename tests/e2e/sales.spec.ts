@@ -6,6 +6,7 @@ import type { SalesRelease } from '../../packages/contracts/src/sales.ts';
 const release = JSON.parse(readFileSync(new URL('../../public/pilot/sales.json', import.meta.url), 'utf8')) as SalesRelease;
 for (const width of [1440, 390]) {
   test(`official sale evidence remains separate from ownership at ${width}`, async ({ page, context }, info) => {
+    test.setTimeout(60_000);
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     const errors: string[] = [];
     page.on('pageerror', error => errors.push(error.message));

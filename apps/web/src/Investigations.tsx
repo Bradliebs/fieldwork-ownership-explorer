@@ -1,24 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, FileText, FolderOpen, Printer, Save } from 'lucide-react';
 import type { Investigation, InvestigationEdit, InvestigationEvent, InvestigationSummary } from '../../../packages/contracts/src/investigation.ts';
 import type { Parcel, PilotManifest } from '../../../packages/contracts/src/ownership.ts';
 import { OwnershipMap } from './OwnershipMap.tsx';
 import { SalesEvidence } from './SalesEvidence.tsx';
+import { api } from './api.ts';
 import type { SalesRelease } from '../../../packages/contracts/src/sales.ts';
 import { emptyWorkflow } from '../../../packages/contracts/src/consent.ts';
 import { ConsentEditor } from './ConsentEditor.tsx';
 
 export interface InvestigationDraft { parcel: Parcel; manifest: PilotManifest; sales?: SalesRelease }
 interface SavedResponse { investigation: Investigation; history: InvestigationEvent[] }
-
-async function request<Value>(url: string, options?: RequestInit): Promise<Value> {
-  const response = await fetch(url, options);
-  if (!response.ok) {
-    const data = await response.json();
-    throw new Error(data.error ?? data.message ?? 'Request failed');
-  }
-  return response.json() as Promise<Value>;
-}
 
 export function Investigations({ draft, token, onDirtyChange, onExplore }: {
   draft: InvestigationDraft | null; token: string; onDirtyChange: (dirty: boolean) => void; onExplore: () => void;
@@ -32,19 +24,21 @@ export function Investigations({ draft, token, onDirtyChange, onExplore }: {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const errorRef = useRef<HTMLDivElement>(null);
   const [message, setMessage] = useState('');
   const dirty = creating || Boolean(saved && (edit.name !== saved.name || edit.question !== saved.question || edit.notes !== saved.notes || JSON.stringify(edit.workflow) !== JSON.stringify(saved.workflow)));
   const parcel = creating ? draft?.parcel : saved?.snapshot.parcel;
   const manifest = creating ? draft?.manifest : saved?.snapshot.manifest;
   useEffect(() => {
     const controller = new AbortController();
-    request<{ investigations: InvestigationSummary[] }>('/api/investigations', { signal: controller.signal })
+    api<{ investigations: InvestigationSummary[] }>('/api/investigations', { signal: controller.signal })
       .then(data => setItems(data.investigations))
       .catch(caught => { if (!controller.signal.aborted) setError(caught.message); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, []);
   useEffect(() => { onDirtyChange(dirty || busy); }, [dirty, busy, onDirtyChange]);
+  useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   useEffect(() => {
     if (!dirty && !busy) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
@@ -59,7 +53,7 @@ export function Investigations({ draft, token, onDirtyChange, onExplore }: {
   async function open(id: string) {
     if (dirty && !window.confirm('Discard unsaved investigation changes?')) return;
     setBusy(true); setError(''); setMessage('');
-    try { accept(await request<SavedResponse>(`/api/investigations/${id}`)); }
+    try { accept(await api<SavedResponse>(`/api/investigations/${id}`)); }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to open investigation'); }
     finally { setBusy(false); }
   }
@@ -67,8 +61,9 @@ export function Investigations({ draft, token, onDirtyChange, onExplore }: {
     if (!parcel || !manifest) return;
     setBusy(true); setError(''); setMessage('');
     try {
-      const data = await request<SavedResponse>(saved && !creating ? `/api/investigations/${saved.id}` : '/api/investigations', {
+      const data = await api<SavedResponse>(saved && !creating ? `/api/investigations/${saved.id}` : '/api/investigations', {
         method: saved && !creating ? 'PUT' : 'POST',
+        retry: saved && !creating ? 'never' : 'operation-id',
         headers: { 'Content-Type': 'application/json', 'x-local-token': token },
         body: JSON.stringify(saved && !creating ? { ...edit, revision: saved.revision } : { ...edit, parcelId: parcel.id, published: manifest.published, operationId }),
       });
@@ -88,7 +83,7 @@ export function Investigations({ draft, token, onDirtyChange, onExplore }: {
         const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error('Unable to read document')); reader.readAsDataURL(file);
       });
       const mediaType = file.type || ({ pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', txt: 'text/plain' } as Record<string, string>)[file.name.split('.').pop()!.toLowerCase()];
-      const data = await request<SavedResponse>(`/api/investigations/${saved.id}/documents`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-local-token': token }, body: JSON.stringify({ revision: saved.revision, name: file.name, mediaType, base64 }) });
+      const data = await api<SavedResponse>(`/api/investigations/${saved.id}/documents`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-local-token': token }, body: JSON.stringify({ revision: saved.revision, name: file.name, mediaType, base64 }) });
       accept(data); setItems(previous => previous.map(item => item.id === saved.id ? { ...item, revision: data.investigation.revision, updatedAt: data.investigation.updatedAt } : item));
       setMessage(`Document saved. Revision ${data.investigation.revision}.`);
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Document upload failed'); }
@@ -117,7 +112,7 @@ export function Investigations({ draft, token, onDirtyChange, onExplore }: {
         </button></li>)}</ul>}
     </aside>
     <article className="investigation-editor">
-      {error && <div className="investigation-error" role="alert">{error}</div>}
+      {error && <div className="investigation-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
       {message && <p className="success-message" role="status">{message}</p>}
       {!parcel || !manifest ? <div className="investigation-empty"><FileText size={32} /><h2>No investigation open</h2><button onClick={onExplore}><ArrowLeft size={16} />Explore parcels</button></div> : <>
         <header className="investigation-heading"><div><span className="section-eyebrow">{creating ? 'NEW INVESTIGATION' : `SAVED REVISION ${saved?.revision}`}</span><h2>{parcel.id}</h2><p>{manifest.name} / {manifest.published}</p></div>

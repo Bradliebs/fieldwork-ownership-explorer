@@ -1,0 +1,82 @@
+{
+  "releaseId": "bristol-harbourside-2026-09-06",
+  "schemaVersion": 1,
+  "createdAt": "2026-09-07T19:13:39.499Z",
+  "importTool": {
+    "name": "fieldwork-ownership-explorer",
+    "version": "0.1.0"
+  },
+  "sources": [
+    {
+      "kind": "parcels",
+      "period": "2026-09-06",
+      "urls": [
+        "https://use-land-property-data.service.gov.uk/datasets/inspire/download/Bristol_City_Council.zip"
+      ],
+      "licence": "https://use-land-property-data.service.gov.uk/datasets/inspire/#conditions",
+      "attribution": "This information is subject to Crown copyright and database rights 2026 and is reproduced with the permission of HM Land Registry. The polygons (including the associated geometry, namely x, y co-ordinates) are subject to Crown copyright and database rights 2026 Ordnance Survey AC0000851063."
+    },
+    {
+      "kind": "basemap",
+      "period": "2026-09-06T23:20:36Z",
+      "urls": [
+        "https://overpass-api.de/api/interpreter"
+      ],
+      "licence": "https://www.openstreetmap.org/copyright",
+      "attribution": "(c) OpenStreetMap contributors, ODbL 1.0"
+    },
+    {
+      "kind": "sales",
+      "period": "2026-07",
+      "urls": [
+        "https://price-paid-data.publicdata.landregistry.gov.uk/pp-inspire-id-lookup-jul-2026.csv",
+        "https://price-paid-data.publicdata.landregistry.gov.uk/pp-monthly-update-new-version.csv"
+      ],
+      "licence": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+      "attribution": "Contains HM Land Registry data (c) Crown copyright and database right 2026. This data is licensed under the Open Government Licence v3.0."
+    }
+  ],
+  "files": [
+    {
+      "path": "manifest.json",
+      "size": 1481,
+      "sha256": "edcd51127993c11f18bd004440b8f9f9ba7821793f3a9b329c48b9334b64c4cf"
+    },
+    {
+      "path": "parcels.json",
+      "size": 2070150,
+      "sha256": "74ee3730d5cfbfaaa8f17361d292644d84cc7bb34448bbcb9675fef95e58fcd7"
+    },
+    {
+      "path": "basemap.json",
+      "size": 5409986,
+      "sha256": "b6a9e05e4e30bf50b4eff886eebf6d8b7395132ceb9a1ee99afbd3ae77878e5b"
+    },
+    {
+      "path": "sales.json",
+      "size": 2298,
+      "sha256": "5c12f94a49d88f974acdaa0af9510a942846539b11d08968cf5cc726b97938ec"
+    }
+  ],
+  "crs": {
+    "source": "EPSG:27700",
+    "display": "WGS84",
+    "transform": "EPSG:27700 via OSTN15 to ETRS89, displayed as WGS84 for web mapping only; not survey-grade WGS84 epoch conversion.",
+    "grid": {
+      "url": "https://cdn.proj.org/uk_os_OSTN15_NTv2_OSGBtoETRS.tif",
+      "sha256": "5d6ed64d2119952c4c559fa1fccbc594b6520fc3ec3ef2fc10be13202c4384fa"
+    }
+  },
+  "counts": {
+    "parcels": 1456,
+    "basemapFeatures": 17182,
+    "salesRecords": 4
+  },
+  "bounds": [
+    [-2.62, 51.44],
+    [-2.58, 51.46]
+  ],
+  "compatibility": {
+    "salesRequiresParcelsSha256": "74ee3730d5cfbfaaa8f17361d292644d84cc7bb34448bbcb9675fef95e58fcd7"
+  }
+}

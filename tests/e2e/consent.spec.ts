@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 
 for (const width of [1440, 390]) {
   test(`construction contact and consent workflow at ${width}`, async ({ page, context }, info) => {
+    test.setTimeout(60_000);
     await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     const failures: string[] = [];
     page.on('pageerror', error => failures.push(error.message));
@@ -15,8 +16,11 @@ for (const width of [1440, 390]) {
     await page.getByLabel('Requesting company and contact').fill('Example Construction / Project Manager');
     await page.getByLabel('Reply address or email').fill('projects@example.com');
     await page.getByLabel('Retention review date').fill('2027-09-01');
+    const readiness = page.getByRole('region', { name: 'Evidence readiness' });
+    await expect(readiness).toContainText('Retention: upcoming 2027-09-01');
+    await readiness.getByRole('button', { name: /Titles/ }).click();
     const sections = page.getByRole('navigation', { name: 'Case sections' });
-    await sections.getByRole('button', { name: 'Titles', exact: true }).click();
+    await expect(sections.getByRole('button', { name: 'Titles', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await page.getByRole('button', { name: 'Add title', exact: true }).click();
     await page.getByLabel('Title number', { exact: true }).fill('AV12345');
     await page.getByLabel('Title evidence reference', { exact: true }).fill('Current register and plan held in project DMS / test fixture');
@@ -81,6 +85,8 @@ for (const width of [1440, 390]) {
     await page.getByLabel('Consent evidence reference', { exact: true }).fill(reference);
     await page.getByRole('button', { name: 'Save investigation', exact: true }).click();
     await expect(page.getByRole('status')).toContainText('Revision 3');
+    await expect(readiness).toContainText('effective');
+    await expect(readiness).toContainText('2026-09-10 to 2026-09-20');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.locator('.consent-editor').scrollIntoViewIfNeeded();
     await page.screenshot({ path: info.outputPath(`consent-${width}.png`), fullPage: true });
@@ -94,6 +100,9 @@ for (const width of [1440, 390]) {
     await page.getByRole('button', { name: 'Report', exact: true }).click();
     const report = await reportPromise;
     await expect(report.locator('body')).toContainText('Landowner contact and consent register');
+    await expect(report.locator('body')).toContainText('Evidence readiness');
+    await expect(report.locator('body')).toContainText('Request states');
+    await expect(report.locator('body')).toContainText('not a legal or works approval');
     await expect(report.locator('body')).toContainText('Example Estates Ltd');
     await expect(report.locator('body')).toContainText(reference);
     await expect(report.locator('body')).toContainText('not a clearance to start work');

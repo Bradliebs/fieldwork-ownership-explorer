@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { buildServer } from '../apps/server/src/server.ts';
 
 const pilotUrl = new URL('../public/pilot/parcels.json', import.meta.url);
@@ -12,6 +12,21 @@ const pilot = JSON.parse(raw.toString());
 const headers = { host: '127.0.0.1:4317' };
 const body = { name: '<script>bad()</script>', question: 'Title evidence?', notes: '<img src=x onerror=bad()>',
   parcelId: pilot.parcels[0].id, published: pilot.manifest.published, operationId: randomUUID() };
+
+test('pilot APIs serve one coherent pinned release', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'pilot-api-'));
+  const app = buildServer({ port: 4317, investigationDb: join(directory, 'cases.sqlite') });
+  try {
+    const parcels = (await app.inject({ url: '/api/pilot-parcels', headers })).json();
+    const basemap = (await app.inject({ url: '/api/pilot-basemap', headers })).json();
+    const manifest = (await app.inject({ url: '/api/pilot-manifest', headers })).json();
+    const release = (await app.inject({ url: '/api/pilot-release', headers })).json();
+    assert.equal(parcels.parcels.length, release.counts.parcels);
+    assert.equal(basemap.features.length, release.counts.basemapFeatures);
+    assert.deepEqual(parcels.manifest, manifest);
+    assert.equal(release.files.find((file: { path: string }) => file.path === 'parcels.json').sha256, createHash('sha256').update(raw).digest('hex'));
+  } finally { await app.close(); rmSync(directory, { recursive: true, force: true }); }
+});
 
 test('investigation API validates sources, protects writes, persists and escapes report content', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'investigation-api-'));

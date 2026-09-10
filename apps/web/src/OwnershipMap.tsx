@@ -11,7 +11,7 @@ const initialBounds: [[number, number], [number, number]] = [[-2.610, 51.447], [
 const baseLayers = ['parks', 'water', 'buildings', 'road-casing', 'roads', 'road-labels'];
 const parcelLayers = ['parcel-fill', 'parcel-edge', 'candidate-edge', 'selected-fill', 'selected-halo', 'selected'];
 function mapStyle(pilot: boolean): StyleSpecification {
-  return { version: 8, sources: pilot ? { context: { type: 'geojson', data: '/pilot/basemap.json' } } : {}, layers: [
+  return { version: 8, sources: pilot ? { context: { type: 'geojson', data: '/api/pilot-basemap' } } : {}, layers: [
     { id: 'background', type: 'background', paint: { 'background-color': '#f1f3f0' } },
     ...(pilot ? [
       { id: 'parks', type: 'fill', source: 'context', filter: ['==', ['get', 'kind'], 'park'], paint: { 'fill-color': '#dce8d4' } },
@@ -32,6 +32,7 @@ function featureData(parcels: Parcel[]): FeatureCollection {
 export function OwnershipMap({ parcels, allParcels, pilot, selected, onSelect, snapshot = false }: { parcels: Parcel[]; allParcels: Parcel[]; pilot: boolean; selected: string | null; onSelect: (id: string) => void; snapshot?: boolean }) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapInstance | null>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
   const onSelectRef = useRef(onSelect);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
@@ -39,6 +40,7 @@ export function OwnershipMap({ parcels, allParcels, pilot, selected, onSelect, s
   const [showParcels, setShowParcels] = useState(true);
   const fitted = useRef(false);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
+  useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   useEffect(() => {
     if (!container.current) return;
     let instance: MapInstance;
@@ -107,7 +109,7 @@ export function OwnershipMap({ parcels, allParcels, pilot, selected, onSelect, s
       <button title="Fit all parcels" aria-label="Fit all parcels" onClick={() => { const extent = parcelBounds(allParcels); if (extent) map.current?.fitBounds(extent, { padding: 50 }); }}><Maximize2 size={17} /></button>
     </div>
     <div className="map-legend">{pilot || snapshot ? <><span><i className="boundary-key" />Indicative freehold</span><span><i className="selection-key" />Selected</span></> : ['verified', 'candidate', 'ambiguous', 'unknown'].map(status => <span key={status}><i className={status} />{status}</span>)}</div>
-    <div className="map-attribution">{pilot ? <><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">(c) OpenStreetMap contributors / ODbL</a><span> | </span><a href="https://use-land-property-data.service.gov.uk/datasets/inspire/#conditions" target="_blank" rel="noreferrer">HMLR &amp; OS (c) Crown copyright and database rights 2026 / OS AC0000851063</a><span> | </span><a href="/pilot/manifest.json" target="_blank" rel="noreferrer">Full attribution</a></> : snapshot ? 'HMLR / OS. Full source attribution below. Indicative extent only.' : 'Synthetic geometry. No legal boundaries or real ownership.'}</div>
-    {error && <div className="map-error" role="alert">Map data error: {error}. Parcel records remain available in the list.</div>}
+    <div className="map-attribution">{pilot ? <><a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">(c) OpenStreetMap contributors / ODbL</a><span> | </span><a href="https://use-land-property-data.service.gov.uk/datasets/inspire/#conditions" target="_blank" rel="noreferrer">HMLR &amp; OS (c) Crown copyright and database rights 2026 / OS AC0000851063</a><span> | </span><a href="/api/pilot-release" target="_blank" rel="noreferrer">Full attribution</a></> : snapshot ? 'HMLR / OS. Full source attribution below. Indicative extent only.' : 'Synthetic geometry. No legal boundaries or real ownership.'}</div>
+    {error && <div className="map-error" role="alert" tabIndex={-1} ref={errorRef}>Map data error: {error}. Parcel records remain available in the list.</div>}
   </section>;
 }

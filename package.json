@@ -14,7 +14,17 @@
   "scripts": {
     "test": "node --test tests/*.test.ts",
     "dev": "tsx apps/server/src/main.ts",
+    "data:backup": "tsx apps/server/src/backup-cli.ts backup",
+    "data:verify": "tsx apps/server/src/backup-cli.ts verify",
+    "data:restore": "tsx apps/server/src/backup-cli.ts restore",
+    "data:recover": "tsx apps/server/src/backup-cli.ts recover",
+    "release:stage": "tsx apps/server/src/release-cli.ts stage",
+    "release:activate": "tsx apps/server/src/release-cli.ts activate",
+    "release:rollback": "tsx apps/server/src/release-cli.ts rollback",
+    "release:status": "tsx apps/server/src/release-cli.ts status",
     "build": "vite build",
+    "build:server": "vite build --config vite.server.config.ts",
+    "build:release": "pwsh -File scripts/Build-Release.ps1",
     "typecheck": "tsc --noEmit",
     "test:e2e": "playwright test"
   },
@@ -36,6 +46,7 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@playwright/test": "1.63.0",
     "@types/geojson": "7946.0.16",
     "@types/node": "26.4.1",

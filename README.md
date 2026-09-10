@@ -19,6 +19,12 @@ currently supports INSPIRE IDs, not addresses or owners that have not been loade
 The local OpenStreetMap extract supplies roads, buildings, water and parks.
 Map layers and fonts work without external network requests after installation.
 
+Evidence readiness includes expandable record-specific gaps with keyboard focus
+on the relevant field. Checks cover recorded information only, not every possible
+title or rights-holder. Use the [failure-focused pilot](docs/failure-focused-pilot.md)
+to evaluate incomplete, assisted and interrupted journeys; the human pilot has
+not yet been completed.
+
 ## Recorded sales
 
 Enable Recorded sales only in Explore to find the four pilot parcels linked to
@@ -48,24 +54,38 @@ never copies these addresses into party contact records:
 * [INSPIRE lookup and terms](https://www.gov.uk/government/statistical-data-sets/transaction-unique-identifier-and-inspire-id-look-up-table-dataset)
 * [Price Paid Data conditions](https://www.gov.uk/government/statistical-data-sets/price-paid-data-downloads#using-or-publishing-our-price-paid-data)
 
-To regenerate this July-only extract, stop the server and run:
+Sales imports use two previously downloaded local CSV files and an explicit JSON
+descriptor. The descriptor records the publication period, canonical source URLs,
+licence, attribution and import tool version. It does not permit rolling downloads:
 
 ```powershell
-node --import tsx import-sales.ts
-npm run build
-npm run dev
+npx tsx import-sales.ts C:\Imports\sales-import.json C:\Imports\candidate .local\source-cache
 ```
 
-The importer downloads official CSVs and archives them by checksum under
-`.local/sales-inputs`. It validates identifiers, preserves multi-polygon
+Paths inside `sales-import.json` are resolved relative to that file. Its required
+shape is:
+
+```json
+{
+   "releaseId": "bristol-harbourside-2026-09-06",
+   "period": "2026-07",
+   "lookup": { "path": "lookup.csv", "url": "https://example.invalid/official-lookup.csv" },
+   "pricePaid": { "path": "price-paid.csv", "url": "https://example.invalid/official-price-paid.csv" },
+   "licence": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+   "attribution": "Required source attribution",
+   "addressConditions": "https://www.gov.uk/government/statistical-data-sets/price-paid-data-downloads#using-or-publishing-our-price-paid-data",
+   "importToolVersion": "0.1.0"
+}
+```
+
+Replace the example source URLs with the exact official URLs used to obtain the
+local inputs. The importer validates identifiers, preserves multi-polygon
 transactions, uses changed records and excludes deletions. Missing linked
-transactions or conflicting rows stop the import before replacing the extract.
-The rolling Price Paid URL is guarded by checking HMLR's current release page;
-once it advances beyond July 2026, this importer refuses to run. Later monthly
-releases need a versioned import workflow, not relabelling this extract.
-Changing the pilot file invalidates its sales extract and requires reimport.
-There are no runtime external requests, paid calls, UPRN imports or corporate
-ownership matching in this milestone.
+transactions or conflicting rows stop the import. Input bytes are retained under
+their SHA-256 names in the selected source cache. Changing the parcel file changes
+its hash and requires a matching sales import. There are no runtime external
+requests, paid calls, UPRN imports or corporate ownership matching in this
+milestone.
 
 ## Saved investigations
 
@@ -142,17 +162,86 @@ contains saved geometry, manifests, notes, contact and consent records, uploaded
 documents and edit history; it is not encrypted.
 Keep this local workspace and any reports within your intended access boundary.
 
-The first upgrade from the earlier investigation database creates
-`.local/investigations.sqlite.pre-consent-v2.bak` before a transactional schema
-migration. Existing notes, revisions and source snapshots are preserved; older
-cases receive an empty consent workflow. Migration and reopening the pre-upgrade
-backup are covered by automated tests. This one-time backup is not ongoing backup
-protection.
+Database upgrades run as ordered, checksum-identified migrations. Before an
+upgrade, the app creates and validates a fresh versioned backup beside the
+database, such as
+`.local/investigations.sqlite.pre-v1-to-v2.<timestamp>-<id>.bak`. Existing notes,
+revisions and source snapshots are preserved; version 1 cases receive an empty
+consent workflow. Startup rejects unknown versions, incomplete or altered
+migration history, failed SQLite integrity checks and broken foreign-key
+references. Migration rollback, retry and reopening a pre-upgrade backup are
+covered by automated tests. Upgrade backups are not ongoing backup protection.
 
-For a manual backup, stop the app and copy the entire `.local` directory to a
-separate protected location. Retain the matching application and pilot assets as
-well. Never replace a database while the app is running. Scheduled backups,
-operational restore drills, archival and deletion controls remain pending.
+## Backup and restore
+
+Backup archives contain the investigation database, uploaded evidence and the
+synthetic review journal when those files exist. Each archive has a versioned
+manifest, file SHA-256 checksums and an HMAC-SHA-256 authentication value. The
+authentication key is not stored in the archive.
+
+Create a random key file outside `FIELDWORK_DATA_DIR`, retain it in your approved
+secret storage and grant access only to the intended Windows account. The same
+key is required to verify and restore every archive created with it. This example
+creates a new key and selects it for the current PowerShell session:
+
+```powershell
+$keyDirectory = Join-Path $env:USERPROFILE '.fieldwork'
+$keyPath = Join-Path $keyDirectory 'backup.key'
+New-Item -ItemType Directory -Path $keyDirectory -Force | Out-Null
+$keyBytes = [byte[]]::new(32)
+[Security.Cryptography.RandomNumberGenerator]::Fill($keyBytes)
+[IO.File]::WriteAllText($keyPath, [Convert]::ToBase64String($keyBytes))
+$env:FIELDWORK_BACKUP_KEY_FILE = $keyPath
+```
+
+Stop the server before each operation. The shared data-directory lock rejects a
+backup, restore or recovery while the server is running. Create an archive at an
+explicit protected location, then verify it independently:
+
+```powershell
+npm run data:backup -- C:\FieldworkBackups\fieldwork-2026-09-09.zip
+npm run data:verify -- C:\FieldworkBackups\fieldwork-2026-09-09.zip
+```
+
+An unclean process termination can leave `.fieldwork-server.lock` in the data
+directory. The app fails closed and prints its exact path. Read the recorded PID,
+confirm that no such process is running, then remove only that lock file:
+
+```powershell
+$lockPath = Join-Path $env:FIELDWORK_DATA_DIR '.fieldwork-server.lock'
+$lock = Get-Content $lockPath -Raw | ConvertFrom-Json
+Get-Process -Id $lock.pid -ErrorAction SilentlyContinue
+Remove-Item $lockPath
+```
+
+When `FIELDWORK_DATA_DIR` is unset, use `.local\.fieldwork-server.lock`. Do not
+remove a lock while its PID is active or while another backup process is running.
+
+Restore replaces the complete managed data set. It first authenticates and
+validates the staged archive, recovers and checkpoints the current SQLite
+database, and creates an authenticated safety archive beside the source archive.
+It then replaces the database and journal, removes stale SQLite sidecars and
+validates the installed data before deleting rollback state:
+
+```powershell
+npm run data:restore -- C:\FieldworkBackups\fieldwork-2026-09-09.zip
+```
+
+The JSON result prints the exact safety archive path. Keep that archive until the
+restored application has passed an operational check. If power loss or a process
+termination interrupts replacement, server startup reports an incomplete restore
+instead of opening mixed data. Stop the server and recover the durable originals:
+
+```powershell
+npm run data:recover
+```
+
+Archives are streamed with exact entry names and bounded extraction. The current
+limits are 9 GiB compressed, 8 GiB for the expanded SQLite database, 256 MiB for
+the expanded journal and a 200:1 compression ratio. HMAC authentication detects
+archives created or altered without the key; it is not encryption. Store archives
+as confidential case material. Scheduled backup execution, off-device retention,
+key rotation, archival and deletion controls remain operational responsibilities.
 The retention review date is a recorded field, not a reminder or deletion job.
 
 ## Pilot data and limitations
@@ -171,18 +260,20 @@ acceptance and independent survey-control validation remain pending.
 
 To regenerate, obtain the Bristol ZIP from the official INSPIRE download page,
 an OSM Overpass JSON extract with geometry, and the grid linked in the manifest.
-Run from the repository root before rebuilding; do not refresh while serving:
+Record their local paths, canonical URLs, licence text, attribution and bounds in
+`pilot-import.json`. Paths are resolved relative to the descriptor. Run the
+importer into a candidate directory, never the active release directory:
 
 ```powershell
-node --import tsx import-pilot.ts <Bristol.zip> <osm.json> <OSTN15.tif>
-npm run build
+npx tsx import-pilot.ts C:\Imports\pilot-import.json C:\Imports\candidate .local\source-cache
 ```
 
 The importer is specific to the inspected GML schema, not a general national
 ingestion pipeline. It rejects unsupported CRS, malformed rings, duplicate IDs
-and count mismatches. It writes files individually, not a transactional release.
-Retain raw downloads separately if reproducibility across future source releases
-is required. The current downloads are in the Windows temporary directory.
+and count mismatches. It validates parcel, basemap and manifest JSON before
+publishing candidate files. Exact source bytes are retained under their SHA-256
+names. Run the sales importer against the same candidate to add `sales.json` and
+the complete `release.json` descriptor.
 
 INSPIRE is used under the OGL and HMLR/OS conditions. OpenStreetMap context is a
 separate ODbL database extract; its downloadable GeoJSON is at
@@ -190,6 +281,40 @@ separate ODbL database extract; its downloadable GeoJSON is at
 The OS OSTN15 grid is distributed by PROJ under BSD-2-Clause and is not bundled.
 The OSM converter's XML dependency is overridden to patched version 0.9.12; this
 importer uses its JSON path, which is exercised by the real-data import.
+
+## Source release operations
+
+Each release contains `parcels.json`, `basemap.json`, `manifest.json`, `sales.json`
+and `release.json`. The descriptor binds every runtime file by byte size and
+SHA-256, records source periods, URLs, licences, attribution, CRS facts, spatial
+bounds and counts, and binds sales to the exact parcel hash.
+
+Stop the server before activation or rollback. Staging copies a candidate into a
+private directory, validates every JSON contract and cross-file invariant, then
+publishes one immutable release directory. Activation atomically replaces only
+the small active pointer:
+
+```powershell
+npm run release:stage -- C:\Imports\candidate
+npm run release:activate -- bristol-harbourside-2026-09-06
+npm run release:status
+```
+
+The app keeps the active and previous release available. Roll back while the app
+is stopped:
+
+```powershell
+npm run release:rollback
+```
+
+Release directories and `active-release.json` are stored under
+`FIELDWORK_DATA_DIR`, or `.local` by default. A stale or live server lock blocks
+activation and rollback. An incomplete candidate or abandoned staging directory
+cannot change the active pointer. At startup, the server validates and pins one
+release directory for its lifetime; parcel, basemap, manifest and sales reads use
+local API endpoints backed by that directory. Existing investigations retain their
+original parcel, manifest, sales evidence and parcel release hash after activation
+or rollback.
 
 ## Run locally
 
@@ -205,9 +330,283 @@ Open <http://127.0.0.1:4317>. Use this exact loopback address: the API rejects o
 Host and Origin values. The launcher serves the built frontend; rebuild after UI
 changes. Set the PORT environment variable to an unused port if needed.
 
+Development defaults keep immutable assets under `dist` and writable records
+under `.local`. Packaged or administrative launches can set
+`FIELDWORK_ASSET_DIR` and `FIELDWORK_DATA_DIR` to absolute or working-directory
+relative paths. Writable data must remain outside the static asset directory.
+
 The app does not expose itself to the LAN. It uses the Windows account as its
 local access boundary, checks Host/Origin, and requires a random per-launch token
 for writes. Reviewer names are audit labels, not authenticated team identities.
+
+## Windows internal pilot artifact
+
+Build the offline Windows x64 artifact with the pinned Node.js 24.13.1 runtime:
+
+```powershell
+npm ci
+npm run build:release
+```
+
+The build produces an unpacked directory, a ZIP, and a ZIP-level SHA-256 file
+under `artifacts`. It also includes a CycloneDX SBOM, the production dependency
+audit result, dependency licence texts, an allowlisted package notice inventory,
+per-file checksums and the Node.js runtime licence. The build fails on a high or
+critical production dependency vulnerability or a Node.js licence hash mismatch.
+
+> [!WARNING]
+> The artifact is an unsigned internal pilot. It is not approved for public or
+> broad enterprise distribution. Verify its SHA-256 through an independently
+> controlled release channel before installation.
+
+Extract the ZIP and install for the current user from PowerShell 7:
+
+```powershell
+./Install.ps1
+```
+
+The default application path is
+`$env:LOCALAPPDATA\Programs\Fieldwork Ownership Explorer`. Start it with
+`Fieldwork Ownership Explorer.cmd`. Writable investigations, logs and source
+releases remain separately under
+`$env:LOCALAPPDATA\Fieldwork Ownership Explorer`. The packaged uninstaller
+removes application files but preserves this operational data unless
+`-RemoveData` is explicitly supplied.
+
+The installed directory also contains `Stop.ps1` for graceful shutdown and
+`Operations.ps1` for backup, verification, restore, recovery and source-release
+operations. These scripts use the bundled Node runtime and do not require npm,
+tsx or a source checkout.
+
+Only one server may own a data directory. A second launch detects the live PID,
+reports its existing loopback URL and exits without opening SQLite or release
+storage. A well-formed lock owned by a dead PID is recovered automatically at
+server startup. A malformed lock fails closed. Administrative backup, restore,
+activation and rollback commands remain fail-closed for every existing lock;
+inspect the recorded PID before removing one manually.
+
+## Operator runbook
+
+Use a standard Windows account with BitLocker or equivalent full-disk
+encryption. Restrict the application data, backup key, archives, reports and
+diagnostic exports to approved users. The runtime is offline and loopback-only,
+but exported material remains confidential.
+
+Set these paths once in each PowerShell 7 operator session:
+
+```powershell
+$InstallPath = Join-Path $env:LOCALAPPDATA 'Programs\Fieldwork Ownership Explorer'
+$DataPath = Join-Path $env:LOCALAPPDATA 'Fieldwork Ownership Explorer'
+$BackupKeyPath = Join-Path $env:USERPROFILE '.fieldwork\backup.key'
+```
+
+### Install, start and stop
+
+1. Compare the artifact ZIP with the SHA-256 received through the controlled
+    release channel, then scan the extracted files with approved endpoint
+    protection.
+2. Run `./Install.ps1` from the extracted artifact. Do not install over a
+    running instance or grant inbound firewall access.
+3. Start the installed application and confirm health:
+
+    ```powershell
+    & (Join-Path $InstallPath 'Fieldwork Ownership Explorer.cmd')
+    Invoke-RestMethod http://127.0.0.1:4317/api/health
+    ```
+
+4. Before backup, restore, source-release maintenance, upgrade or uninstall,
+    stop Fastify and SQLite cleanly:
+
+    ```powershell
+    & (Join-Path $InstallPath 'Stop.ps1') -DataPath $DataPath
+    ```
+
+Closing the browser does not stop the detached local server. `Stop.ps1` verifies
+the lock instance, bundled executable and process start time before requesting
+graceful shutdown. Do not use Task Manager termination for routine shutdown.
+
+### Backup schedule and restore drill
+
+Create and verify a backup before each application or source-release change and
+on the organisation's approved case-data schedule. Keep at least one verified
+copy away from the workstation. Store the key separately; HMAC authentication
+detects alteration but does not encrypt the archive.
+
+```powershell
+$Archive = 'C:\FieldworkBackups\fieldwork-2026-09-10.zip'
+& (Join-Path $InstallPath 'Operations.ps1') backup $Archive -DataPath $DataPath -BackupKeyFile $BackupKeyPath
+& (Join-Path $InstallPath 'Operations.ps1') verify $Archive -DataPath $DataPath -BackupKeyFile $BackupKeyPath
+```
+
+Run a witnessed restore drill before pilot reliance and after a material upgrade.
+Stop the application, verify the selected archive, restore it, retain the printed
+safety-archive path, restart, then reopen representative cases and download a
+known document to compare its SHA-256. Keep the safety archive until the check
+passes:
+
+```powershell
+& (Join-Path $InstallPath 'Operations.ps1') restore $Archive -DataPath $DataPath -BackupKeyFile $BackupKeyPath
+```
+
+If restore is interrupted, keep the server stopped and recover the durable
+originals before retrying:
+
+```powershell
+& (Join-Path $InstallPath 'Operations.ps1') recover -DataPath $DataPath
+```
+
+See [Backup and restore](#backup-and-restore) for archive contents, limits,
+authentication and manual stale-lock handling.
+
+### Source and application releases
+
+Stage and validate a complete local source candidate while the application is
+stopped. Activation changes only the atomic active pointer; existing
+investigations keep their original source snapshots:
+
+```powershell
+& (Join-Path $InstallPath 'Operations.ps1') release-stage C:\Imports\candidate -DataPath $DataPath
+& (Join-Path $InstallPath 'Operations.ps1') release-activate bristol-harbourside-2026-09-06 -DataPath $DataPath
+& (Join-Path $InstallPath 'Operations.ps1') release-status -DataPath $DataPath
+```
+
+To restore the previous source release, stop the application and run:
+
+```powershell
+& (Join-Path $InstallPath 'Operations.ps1') release-rollback -DataPath $DataPath
+```
+
+Confirm source-specific licence, permitted use, attribution and export recipients
+before staging restricted data. INSPIRE outlines remain indicative, Price Paid
+addresses are not landowner contact data, and no source activation establishes
+ownership certainty.
+
+For an application upgrade, stop the current version, create and verify a data
+backup, retain the current artifact and run the new `Install.ps1`. Restart and
+check health, diagnostics, representative cases, documents and reports. To roll
+back only application files, stop the new version and reinstall the retained
+artifact. If startup applied a database migration that the earlier application
+does not support, restore the pre-upgrade archive before reinstalling. Data
+rollback discards changes made after that archive; record this as a separate,
+explicit decision from application rollback.
+
+### Failure and incident response
+
+Use the reported stable error and these fail-closed actions:
+
+* For a live runtime lock, use the existing loopback URL or `Stop.ps1`. Remove a
+   lock manually only after its recorded PID is confirmed stopped.
+* For an incomplete restore, keep the server stopped and run `recover`.
+* For SQLite integrity, unknown-schema, migration-history or broken-reference
+   failures, do not edit the database or repeatedly restart. Preserve the data
+   directory, logs and latest verified archive, then escalate for recovery.
+* For an invalid or incomplete source release, leave the active pointer alone.
+   Inspect `release-status`, correct and restage the candidate, or roll back to
+   the retained previous release.
+* For low writable space, stop case work and free approved local capacity. Do
+   not delete evidence, SQLite sidecars or source directories by hand.
+
+While the app is healthy, export diagnostics without case bodies:
+
+```powershell
+Invoke-WebRequest http://127.0.0.1:4317/api/diagnostics/export -OutFile C:\FieldworkSupport\diagnostics.json
+```
+
+For suspected disclosure, malware or unauthorised local access, stop the app,
+disconnect the workstation according to the organisation's incident process,
+preserve the data directory and operational logs without opening evidence, and
+restrict reports, backups, keys and diagnostics from further sharing. Record the
+artifact hash, app/schema/release versions and incident time. Diagnostics exclude
+case content; they are not a substitute for preserving authorised evidence.
+
+### Retention and complete removal
+
+Review the factual readiness panel and report on the recorded retention date.
+The application has no background reminder, legal-sufficiency decision or
+automatic deletion. An authorised owner must decide retention separately for the
+live database, reports, backups, safety archives, source inputs and external
+document-management references.
+
+Routine uninstall preserves operational data:
+
+```powershell
+& (Join-Path $InstallPath 'Stop.ps1') -DataPath $DataPath
+& (Join-Path $InstallPath 'Uninstall.ps1')
+```
+
+After an approved retention or disposal decision, complete removal deletes the
+managed data directory as well:
+
+```powershell
+& (Join-Path $InstallPath 'Stop.ps1') -DataPath $DataPath
+& (Join-Path $InstallPath 'Uninstall.ps1') -RemoveData
+```
+
+`-RemoveData` does not delete backup keys, archives, reports, diagnostics or
+source inputs stored elsewhere. Dispose of those locations through the same
+approved process and retain the required destruction record.
+
+## Health, diagnostics and logs
+
+Use these loopback-only endpoints while the application is running:
+
+* `/api/health` returns a minimal `{"status":"ok"}` readiness response
+* `/api/diagnostics` reports application, schema and release versions, writable
+   storage and free bytes, SQLite integrity, last backup status and log path
+* `/api/diagnostics/export` downloads the same facts with the bounded operational
+   log records as JSON
+
+The exact `127.0.0.1:<port>` Host policy protects these routes. Treat a diagnostic
+export as internal operational material even though its schema excludes case
+content.
+
+Operational logs are stored at
+`FIELDWORK_DATA_DIR\logs\fieldwork.jsonl`, or under the packaged data directory
+when the variable is unset. The current file rotates at 1 MiB and retains one
+predecessor named `fieldwork.jsonl.1`. Each strict record contains only timestamp,
+event, request ID, route template, status, duration, release ID, application and
+schema versions, and a stable error code. Request bodies, headers, query values,
+tokens, parcel IDs, names, addresses, notes and document metadata are never
+captured.
+
+Successful `data:backup` and `data:verify` commands update
+`FIELDWORK_DATA_DIR\backup-status.json`. Diagnostics expose only the operation,
+completion time and archive filename. A missing status means no successful
+backup or verification has been recorded for that data directory; it does not
+prove that no external backup exists.
+
+Client reads retry one transient network or server failure. Writes are not
+automatically retried, except investigation creation with its stable operation
+ID. Validation, revision conflict, storage, release mismatch, access, not-found,
+network and unexpected failures are classified centrally. Editors retain unsaved
+drafts and move keyboard focus to the actionable alert.
+
+## Windows deployment checklist
+
+Complete these checks for each pilot release and record the evidence with the
+release decision:
+
+* Build from a reviewed commit on the pinned Windows and Node.js versions
+* Require typecheck, unit/API tests, browser tests, production audit and artifact
+   checksum verification to pass in CI
+* Compare the downloaded ZIP against the SHA-256 from an independent channel
+* Review the CycloneDX SBOM, npm audit result, notices and bundled licence texts
+* Keep the unsigned-build warning visible until Authenticode signing, timestamping
+   and certificate custody are operational
+* Scan the extracted artifact with the organisation's approved endpoint protection
+   and record Windows SmartScreen or application-control exceptions
+* Install and run as a standard Windows user; do not grant administrator rights
+   or inbound firewall access
+* Confirm the process listens only on `127.0.0.1` and completes the offline-request
+   browser test on the target machine
+* Restrict NTFS access to the operational data, backup key, backups, reports and
+   diagnostic exports to approved users
+* Create and independently verify a backup, then complete a witnessed restore
+   drill before relying on the workstation
+* Confirm second-launch detection, stale-lock recovery, free-space diagnostics,
+   SQLite integrity and log rotation on target hardware
+* Verify uninstall preserves operational data by default and test explicit data
+   disposal only under the approved retention process
 
 ## Review and export semantics
 
@@ -247,6 +646,9 @@ restart persistence, retry-safe creation and rollback when audit writes fail.
 Consent tests cover required evidence, authority, contact-use approval, date
 validation, migration/backup reopening, private document access, revision
 conflicts, unsent request drafts and the complete desktop/mobile case journey.
+Backup tests cover authenticated round trips, uploaded evidence, journal recovery,
+tamper and unexpected-entry rejection, server exclusion and interrupted restore
+recovery.
 Test output is ignored.
 
 ## Remaining delivery gates
@@ -259,8 +661,9 @@ Test output is ignored.
    imports, cross-authority deduplication and data lifecycle handling.
 4. Add evidence-led candidate matching, wider basemap coverage and indexed
    viewport tiles. The bounded pilot uses GeoJSON, not a national serving strategy.
-5. Validate a real authority pilot, backup/restore, licence revocation and hardware
-   performance before national rollout. No national matching coverage is promised.
+5. Validate a real authority pilot, run a witnessed restore drill, confirm licence
+   revocation handling and measure target hardware performance before national
+   rollout. No national matching coverage is promised.
 
 Automated private-individual ownership lookup, paid title-link integration, public
 hosting and remote team access remain outside scope. Corporate-data ingestion and GeoPackage controls are

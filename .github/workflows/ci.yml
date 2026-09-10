@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-windows:
+    name: Verify on Windows
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.13.1
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install chromium
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run unit and API tests
+        run: npm test
+
+      - name: Build production assets
+        run: npm run build
+
+      - name: Run browser tests
+        run: npm run test:e2e
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Build Windows internal pilot
+        run: npm run build:release
+
+      - name: Verify published checksum
+        shell: pwsh
+        run: |
+          $checksum = Get-Content artifacts/fieldwork-ownership-explorer-0.1.0-windows-x64.zip.sha256
+          $expected = ($checksum -split '\s+')[0]
+          $actual = (Get-FileHash artifacts/fieldwork-ownership-explorer-0.1.0-windows-x64.zip -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { throw 'Published artifact checksum does not match' }
+
+      - name: Upload Windows internal pilot
+        uses: actions/upload-artifact@v4
+        with:
+          name: fieldwork-ownership-explorer-internal-pilot-windows-x64
+          path: |
+            artifacts/fieldwork-ownership-explorer-0.1.0-windows-x64.zip
+            artifacts/fieldwork-ownership-explorer-0.1.0-windows-x64.zip.sha256
+            artifacts/fieldwork-ownership-explorer-0.1.0-windows-x64/sbom.cdx.json
+            artifacts/fieldwork-ownership-explorer-0.1.0-windows-x64/npm-audit.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failures-windows
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14

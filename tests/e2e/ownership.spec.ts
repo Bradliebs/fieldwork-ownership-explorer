@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { PNG } from 'pngjs';
 import { readFileSync } from 'node:fs';
 
@@ -59,6 +60,37 @@ test('mobile fits, joint proprietors stay visible, filters and readiness work', 
   await expect(page.getByRole('heading', { name: 'Source register' })).toBeVisible();
   await expect(page.locator('.gate-list>div')).toHaveCount(4);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
+test('malformed local-service response shows an actionable error and reloads', async ({ page }) => {
+  let returnMalformedResponse = true;
+  await page.route('**/api/status', route => {
+    if (returnMalformedResponse) {
+      returnMalformedResponse = false;
+      return route.fulfill({ status: 200, contentType: 'text/html', body: '<html>unexpected</html>' });
+    }
+    return route.continue();
+  });
+
+  await page.goto('/');
+  await expect(page.getByRole('alert')).toContainText('local service returned an invalid response');
+  await page.getByRole('button', { name: 'Reload records' }).click();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.getByTestId('map')).toHaveAttribute('data-ready', 'true');
+  await expect(page.locator('.parcel-row')).toHaveCount(100);
+});
+
+test('Explore has no serious or critical automated accessibility violations', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByTestId('map')).toHaveAttribute('data-ready', 'true');
+
+  const results = await new AxeBuilder({ page })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  const blockingViolations = results.violations.filter(violation =>
+    violation.impact === 'serious' || violation.impact === 'critical');
+
+  expect(blockingViolations).toEqual([]);
 });
 
 for (const viewport of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {

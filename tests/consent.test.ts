@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createInvestigationStore } from '../apps/server/src/investigation-store.ts';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -69,8 +69,8 @@ test('v1 cases migrate without loss and the pre-upgrade backup remains restorabl
   const pilot = JSON.parse(readFileSync(new URL('../public/pilot/parcels.json', import.meta.url), 'utf8'));
   const snapshot = { dataset: 'pilot', releaseSha256: 'old', parcel: pilot.parcels[0], manifest: pilot.manifest };
   const caseId = randomUUID();
-  database.exec(`CREATE TABLE investigations (id TEXT PRIMARY KEY, name TEXT NOT NULL, question TEXT NOT NULL, notes TEXT NOT NULL, revision INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, snapshot TEXT NOT NULL);
-    CREATE TABLE investigation_events (investigation_id TEXT NOT NULL, revision INTEGER NOT NULL, action TEXT NOT NULL, at TEXT NOT NULL, name TEXT NOT NULL, question TEXT NOT NULL, notes TEXT NOT NULL, PRIMARY KEY(investigation_id, revision));
+  database.exec(`CREATE TABLE investigations (id TEXT PRIMARY KEY, name TEXT NOT NULL, question TEXT NOT NULL, notes TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision >= 0), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, snapshot TEXT NOT NULL);
+    CREATE TABLE investigation_events (investigation_id TEXT NOT NULL REFERENCES investigations(id), revision INTEGER NOT NULL, action TEXT NOT NULL, at TEXT NOT NULL, name TEXT NOT NULL, question TEXT NOT NULL, notes TEXT NOT NULL, PRIMARY KEY(investigation_id, revision));
     PRAGMA user_version=1;`);
   database.prepare('INSERT INTO investigations VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(caseId, 'Original case', 'Original question', 'Do not lose notes', 0, '2026-09-01', '2026-09-01', JSON.stringify(snapshot));
   database.prepare('INSERT INTO investigation_events VALUES (?, 0, ?, ?, ?, ?, ?)').run(caseId, 'created', '2026-09-01', 'Original case', 'Original question', 'Do not lose notes');
@@ -81,14 +81,15 @@ test('v1 cases migrate without loss and the pre-upgrade backup remains restorabl
     assert.deepEqual(store.get(caseId)!.snapshot, snapshot);
     assert.deepEqual(store.get(caseId)!.workflow, emptyWorkflow());
     assert.equal(store.history(caseId).length, 1);
-    assert.ok(existsSync(`${path}.pre-consent-v2.bak`));
+    const backups = readdirSync(directory).filter(name => name.startsWith('cases.sqlite.pre-v1-to-v2.') && name.endsWith('.bak'));
+    assert.equal(backups.length, 1);
     const item = store.addDocument(caseId, 0, 'authority.txt', 'text/plain', Buffer.from('Evidence fixture'));
     const workflow = grantedWorkflow(); workflow.consents[0].evidenceRef = `doc:${item.documents[0].id}`;
     store.update(caseId, 1, { name: item.name, question: item.question, notes: item.notes, workflow });
     store.close(); store = createInvestigationStore(path);
     assert.deepEqual(store.get(caseId)!.workflow, workflow);
     assert.equal(store.document(caseId, item.documents[0].id)!.content.toString(), 'Evidence fixture');
-    const restored = createInvestigationStore(`${path}.pre-consent-v2.bak`);
+    const restored = createInvestigationStore(join(directory, backups[0]));
     try { assert.equal(restored.get(caseId)!.notes, 'Do not lose notes'); assert.deepEqual(restored.get(caseId)!.workflow, emptyWorkflow()); } finally { restored.close(); }
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
 });
@@ -131,6 +132,10 @@ test('API protects attachments, rejects unsupported grants and produces unsent d
     assert.deepEqual(saved.snapshot.parcel.links, []);
     const report = await app.inject({ url: `/api/investigations/${item.id}/report`, headers });
     assert.match(report.body, /Landowner contact and consent register/);
+    assert.match(report.body, /Evidence readiness/);
+    assert.match(report.body, /Request states/);
+    assert.match(report.body, /factual record gaps identified/);
+    assert.match(report.body, /This is not a legal or works approval/);
     assert.match(report.body, /Not supplied by INSPIRE; see case title assessments/);
     assert.doesNotMatch(report.body, /No ownership evidence loaded/);
     assert.ok(report.body.includes(document.sha256));

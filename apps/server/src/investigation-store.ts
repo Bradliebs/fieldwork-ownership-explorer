@@ -1,47 +1,19 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Investigation, InvestigationEdit, InvestigationEvent, InvestigationSnapshot, InvestigationSummary } from '../../../packages/contracts/src/investigation.ts';
 import { emptyWorkflow, workflowSchema, validateDocumentReferences, type EvidenceDocument } from '../../../packages/contracts/src/consent.ts';
+import { checkInvestigationDatabase, migrateInvestigationDatabase } from './investigation-migrations.ts';
 
 export function createInvestigationStore(path = ':memory:') {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const database = new DatabaseSync(path);
   try {
     database.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 3000;');
-    const version = database.prepare('PRAGMA user_version').get()!.user_version;
-    if (version !== 0 && version !== 1 && version !== 2) throw new Error('Unsupported investigation database version');
-    if (version === 0) database.exec(`
-      BEGIN IMMEDIATE;
-      CREATE TABLE investigations (
-        id TEXT PRIMARY KEY, name TEXT NOT NULL, question TEXT NOT NULL, notes TEXT NOT NULL,
-        revision INTEGER NOT NULL CHECK(revision >= 0), created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL, snapshot TEXT NOT NULL
-      );
-      CREATE TABLE investigation_events (
-        investigation_id TEXT NOT NULL REFERENCES investigations(id),
-        revision INTEGER NOT NULL, action TEXT NOT NULL, at TEXT NOT NULL,
-        name TEXT NOT NULL, question TEXT NOT NULL, notes TEXT NOT NULL,
-        PRIMARY KEY(investigation_id, revision)
-      );
-      PRAGMA user_version = 1;
-      COMMIT;
-    `);
-    if (version === 1 && path !== ':memory:' && !existsSync(`${path}.pre-consent-v2.bak`)) database.prepare('VACUUM INTO ?').run(`${path}.pre-consent-v2.bak`);
-    if (version !== 2) database.exec(`
-      BEGIN IMMEDIATE;
-      ALTER TABLE investigations ADD COLUMN workflow TEXT NOT NULL DEFAULT '${JSON.stringify(emptyWorkflow())}';
-      ALTER TABLE investigation_events ADD COLUMN workflow TEXT NOT NULL DEFAULT '${JSON.stringify(emptyWorkflow())}';
-      ALTER TABLE investigation_events ADD COLUMN documents TEXT NOT NULL DEFAULT '[]';
-      CREATE TABLE investigation_documents (
-        id TEXT PRIMARY KEY, investigation_id TEXT NOT NULL REFERENCES investigations(id),
-        name TEXT NOT NULL, media_type TEXT NOT NULL, size INTEGER NOT NULL,
-        sha256 TEXT NOT NULL, uploaded_at TEXT NOT NULL, content BLOB NOT NULL
-      );
-      PRAGMA user_version = 2;
-      COMMIT;
-    `);
+    checkInvestigationDatabase(database);
+    migrateInvestigationDatabase(database, path);
+    checkInvestigationDatabase(database);
   } catch (error) { database.close(); throw error; }
 
   function get(id: string): Investigation | undefined {
@@ -62,7 +34,9 @@ export function createInvestigationStore(path = ':memory:') {
     catch (error) { database.exec('ROLLBACK'); throw error; }
   }
   function audit(item: Investigation, action: InvestigationEvent['action']) {
-    database.prepare('INSERT INTO investigation_events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    database.prepare(`INSERT INTO investigation_events (
+      investigation_id, revision, action, at, name, question, notes, workflow, documents
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(item.id, item.revision, action, item.updatedAt, item.name, item.question, item.notes, JSON.stringify(item.workflow), JSON.stringify(item.documents));
   }
   return {
@@ -90,7 +64,9 @@ export function createInvestigationStore(path = ':memory:') {
         }
         const at = new Date().toISOString();
         const item: Investigation = { ...edit, workflow, documents: [], id, snapshot: structuredClone(snapshot), revision: 0, createdAt: at, updatedAt: at };
-        database.prepare('INSERT INTO investigations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        database.prepare(`INSERT INTO investigations (
+          id, name, question, notes, revision, created_at, updated_at, snapshot, workflow
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
           .run(item.id, item.name, item.question, item.notes, item.revision, at, at, JSON.stringify(item.snapshot), JSON.stringify(workflow));
         audit(item, 'created');
         return item;
@@ -123,7 +99,9 @@ export function createInvestigationStore(path = ':memory:') {
           : mediaType === 'text/plain' && !content.includes(0);
         if (!valid) throw new Error('Only PDF, PNG, JPEG or plain text evidence is accepted');
         const document: EvidenceDocument = { id: randomUUID(), name, mediaType, size: content.length, sha256: createHash('sha256').update(content).digest('hex'), uploadedAt: new Date().toISOString() };
-        database.prepare('INSERT INTO investigation_documents VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(document.id, id, name, mediaType, content.length, document.sha256, document.uploadedAt, content);
+        database.prepare(`INSERT INTO investigation_documents (
+          id, investigation_id, name, media_type, size, sha256, uploaded_at, content
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(document.id, id, name, mediaType, content.length, document.sha256, document.uploadedAt, content);
         item.documents.push(document); item.revision++; item.updatedAt = document.uploadedAt;
         database.prepare('UPDATE investigations SET revision = ?, updated_at = ? WHERE id = ?').run(item.revision, item.updatedAt, id);
         audit(item, 'document added');
