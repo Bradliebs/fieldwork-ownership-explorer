@@ -75,7 +75,7 @@ test('conflicting investigation edit preserves draft and can reopen saved versio
   await expect(page.getByRole('status')).toContainText('Revision 1');
   await other.getByLabel('Analyst notes').fill('Second unsaved edit');
   await other.getByRole('button', { name: 'Save investigation', exact: true }).click();
-  await expect(other.getByRole('alert')).toContainText('changed in another window');
+  await expect(other.getByRole('alert')).toContainText('The saved revision changed');
   await expect(other.getByLabel('Analyst notes')).toHaveValue('Second unsaved edit');
   other.once('dialog', dialog => dialog.accept());
   await other.getByRole('button', { name: 'Reopen saved version' }).click();

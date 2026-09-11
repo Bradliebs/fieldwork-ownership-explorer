@@ -86,7 +86,7 @@ export function investigationRoutes(app: FastifyInstance, options: { investigati
     } catch (error) {
       if (error instanceof ZodError) return reply.code(400).send({ error: error.issues.map(issue => issue.message).join('; ') });
       if (error instanceof Error && error.message === 'Evidence references a missing case document') return reply.code(400).send({ error: error.message });
-      if (error instanceof Error && error.message === 'Revision conflict') return reply.code(409).send({ error: 'This investigation changed in another window. Reopen the saved version before editing again. Your draft has not been saved.' });
+      if (error instanceof Error && error.message === 'Revision conflict') return reply.code(409).send({ error: 'The saved revision changed. Another window or a previous save whose response was lost may have updated it. This attempt made no changes. Your current draft remains in this window. Preserve any edits before reopening the saved version.' });
       if (error instanceof Error && error.message === 'Investigation not found') return reply.code(404).send({ error: error.message });
       return reply.code(500).send({ error: 'Investigation could not be saved. No changes were committed.' });
     }

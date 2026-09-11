@@ -9,6 +9,105 @@ Prepared, not executed. Automated navigation tests do not establish field usabil
 Test whether people can identify and act on evidence gaps without mistaking record
 completeness for ownership certainty or permission to start work.
 
+### Automated departure checks
+
+Five Chromium checks in [draft-departure.spec.ts](../tests/e2e/draft-departure.spec.ts)
+passed on 2026-09-10. For new and existing investigations at 1440 px and 390 px,
+cancelling the native reload or close warning retains analyst notes and consent
+project edits. Saving removes the warning, and saved edits survive reload and
+tab closure/reopening. Confirming reload discards unsaved edits without changing
+the saved revision.
+
+Drafts remain in memory only. These checks do not establish recovery after a
+browser crash, forced termination, power loss or browser session restoration.
+Browsers may suppress departure warnings, particularly without prior user
+interaction or during mobile process termination. Accepting departure loses
+unsaved work. Do not treat these passing checks as automatic draft recovery or
+completion of the interrupted-work pilot.
+
+### Automated save recovery checks
+
+Eight checks in [save-recovery.spec.ts](../tests/e2e/save-recovery.spec.ts) passed
+on 2026-09-10 at 1440 px and 390 px. They cover rejected creation and update
+requests, plus real server commits followed by deliberately dropped responses.
+Draft notes and project edits remain in the editor after failure.
+
+Creation retries reuse the original operation ID, including a manual retry after
+both automatic attempts lose their responses. The stored result is one case with
+one creation event. Updates are not automatically retried. A rejected update can
+be manually retried; a committed update with a lost response produces a revision
+conflict on retry without adding another revision. The conflict message now
+acknowledges either another writer or a prior save with a lost response, rather
+than incorrectly asserting that the draft was never saved.
+
+Reopening the saved version still requires confirmation and replaces the current
+draft. Preserve any subsequent edits before doing so. These checks do not cover
+retrying a changed creation payload after an uncertain result. Process termination
+at the store commit boundary is covered separately below.
+
+### Automated upload recovery checks
+
+Four checks in [upload-recovery.spec.ts](../tests/e2e/upload-recovery.spec.ts)
+passed on 2026-09-10 at 1440 px and 390 px. A rejected upload leaves no attachment,
+revision or history event. Selecting the file again after the failure stores one
+attachment and one additional history event. Saved case notes remain unchanged.
+
+For a committed upload followed by a lost response, the editor reports an error
+without falsely announcing success or showing an unconfirmed attachment. Uploads
+are not automatically retried. Selecting the same file again with the stale case
+revision produces a conflict and adds no duplicate. Reopening the saved version
+reveals the committed attachment. Its SHA-256 and downloaded bytes match the
+original, and it remains visible after reload.
+
+This is revision-based retry protection, not duplicate-file detection. After
+reopening, inspect existing attachments before selecting a file again: a new
+upload using the latest revision can add another copy. These tests use a small
+fictional text file and do not establish maximum-size performance, disk-full
+rollback, mid-transaction crash recovery, or interrupted PDF/image uploads.
+
+### Automated process termination checks
+
+Six checks in [investigation-crash.test.ts](../tests/investigation-crash.test.ts)
+passed on 2026-09-10 on Windows. Each uses disposable storage and the production
+investigation store in a child process. A test-only barrier pauses immediately
+before or after SQLite COMMIT, and the parent forcibly terminates that child
+without graceful database closure. Creation, update and document attachment are
+each checked at both boundaries.
+
+Reopening through the store discards uncommitted changes and preserves committed
+revisions. Existing evidence remains intact. The maximum permitted 3,000,000-byte
+text attachment survives a committed write with matching bytes and SHA-256; an
+uncommitted attachment leaves no document row. Audit snapshots match the recovered
+records, SQLite integrity and foreign-key checks pass, and a subsequent save
+survives another reopen. The six checks and eight neighboring persistence checks
+pass together.
+
+These checks exercise store recovery, not full HTTP server or Windows launcher
+restart. They do not interrupt SQLite inside COMMIT or establish power-loss,
+disk-full, filesystem corruption, browser-draft recovery or representative hardware
+performance. Those remain separate acceptance checks. No live data or running
+application instance is used.
+
+### Automated HTTP server restart check
+
+One integration check in [server-restart.test.ts](../tests/server-restart.test.ts)
+passed on 2026-09-11 on Windows. It launches the source server entry point with
+disposable storage and an available loopback port, saves a case and text evidence
+through HTTP, and forcibly terminates only that test-owned process. The stale
+instance lock remains until the replacement server reclaims it automatically.
+
+After restart, the saved case, audit history, source release and attachment bytes
+are unchanged, the attachment SHA-256 matches, and the saved report loads. The old
+write token is rejected; a fresh session token permits the next revision. An
+instance-specific shutdown request then stops the server cleanly and removes its
+lock. A further launch retains that new revision.
+
+This complements the store commit-boundary tests: termination here occurs after
+the HTTP upload succeeds, not during a write. It does not test the packaged Windows
+launcher, browser reconnection, power loss or disk-full behavior. Static assets
+come from the public fixture directory; built frontend rendering is not exercised.
+Existing application instances and live storage are not used.
+
 The existing three-case pilot must include incomplete and adverse outcomes, not
 three successful grants. A refusal accurately recorded is a successful task;
 obtaining a grant is not the usability success criterion.
