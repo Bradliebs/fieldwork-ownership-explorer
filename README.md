@@ -110,6 +110,30 @@ not change the source parcel's unknown ownership status or its exported links.
 Synthetic parcels cannot create investigations. There is no automated owner
 lookup, automatic title linking or multi-parcel case support.
 
+### Unsaved work and recovery
+
+Drafts remain in browser memory only. Save before closing or reloading the page.
+Cancelling a browser departure warning retains the draft, but browsers may
+suppress that warning. Accepting departure, browser crashes and forced browser
+termination can lose unsaved work; there is no automatic draft restoration.
+
+A failed save leaves the current draft in the editor. A lost response does not
+prove that the write failed: the server may already have committed it. Identical
+creation retries reuse the operation ID; updates and uploads are not automatically
+retried. A stale revision prevents a retry from adding another update or attachment.
+Preserve any unsaved edits before choosing Reopen saved version, which replaces
+the editor contents. Inspect saved attachments before uploading again: a new upload
+after reopening can add another copy. This is not duplicate-file detection.
+
+Automated checks cover rejected saves/uploads, committed writes with lost
+responses, and forced process termination immediately before and after SQLite
+commit. They verify complete revisions, matching audit history and attachment
+bytes. A real HTTP server restart also preserves saved records and evidence,
+reclaims its stale instance lock and requires a fresh write token.
+See the [failure-focused pilot results](docs/failure-focused-pilot.md) for the
+tested scenarios and limits. These checks do not establish packaged Windows
+launcher recovery, power-loss or disk-full safety, or completion of the human pilot.
+
 ## Construction consent workflow
 
 1. Start an investigation from the relevant real parcel. In Project, record the
@@ -204,18 +228,25 @@ npm run data:verify -- C:\FieldworkBackups\fieldwork-2026-09-09.zip
 ```
 
 An unclean process termination can leave `.fieldwork-server.lock` in the data
-directory. The app fails closed and prints its exact path. Read the recorded PID,
-confirm that no such process is running, then remove only that lock file:
+directory. Server startup automatically reclaims a well-formed server instance
+lock whose PID is no longer running; it rejects malformed locks. Backup, restore
+and recovery commands do not automatically reclaim existing locks: they fail
+closed and report the lock. For manual investigation, select the actual data
+directory and inspect the recorded PID:
 
 ```powershell
-$lockPath = Join-Path $env:FIELDWORK_DATA_DIR '.fieldwork-server.lock'
+$dataPath = if ($env:FIELDWORK_DATA_DIR) { $env:FIELDWORK_DATA_DIR } else { '.local' }
+$lockPath = Join-Path $dataPath '.fieldwork-server.lock'
 $lock = Get-Content $lockPath -Raw | ConvertFrom-Json
 Get-Process -Id $lock.pid -ErrorAction SilentlyContinue
-Remove-Item $lockPath
 ```
 
-When `FIELDWORK_DATA_DIR` is unset, use `.local\.fieldwork-server.lock`. Do not
-remove a lock while its PID is active or while another backup process is running.
+For an installed application, select its configured data directory rather than
+the source-checkout default `.local`. Only after independently confirming that no
+Fieldwork server or data-management operation is running against that directory
+may you remove that specific lock with `Remove-Item -LiteralPath $lockPath`.
+Do not remove an active lock. If the record cannot be parsed or process inspection
+is inconclusive, stop and investigate rather than assuming the lock is stale.
 
 Restore replaces the complete managed data set. It first authenticates and
 validates the staged archive, recovers and checkpoints the current SQLite
