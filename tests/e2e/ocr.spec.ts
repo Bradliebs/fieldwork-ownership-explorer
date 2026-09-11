@@ -1,0 +1,60 @@
+import { expect, test } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+
+for (const width of [1440, 390]) {
+  test(`local OCR produces explicitly reviewed image transcripts at ${width}`, async ({ page, context }, info) => {
+    test.setTimeout(90_000);
+    await page.setViewportSize({ width, height: 900 });
+    const external: string[] = [];
+    await context.route(/^https?:\/\/(?!127\.0\.0\.1:4318\/)/, route => { external.push(route.request().url()); return route.abort(); });
+    await page.goto('/');
+    const image = await page.evaluate(() => {
+      const canvas = document.createElement('canvas'); canvas.width = 1000; canvas.height = 240;
+      const drawing = canvas.getContext('2d')!;
+      drawing.fillStyle = 'white'; drawing.fillRect(0, 0, 1000, 240);
+      drawing.fillStyle = 'black'; drawing.font = '48px sans-serif';
+      drawing.fillText('FIELD ACCESS', 40, 80); drawing.fillText('TITLE AV123456', 40, 160);
+      return canvas.toDataURL('image/png').split(',')[1];
+    });
+    await page.locator('.parcel-row').first().click();
+    await page.getByRole('button', { name: 'Start investigation', exact: true }).click();
+    await page.getByRole('button', { name: 'Save investigation', exact: true }).click();
+    await expect(page.getByRole('status')).toContainText('Revision 0');
+    await page.getByRole('navigation', { name: 'Case sections' }).getByRole('button', { name: 'Documents', exact: true }).click();
+    await page.getByLabel('Evidence document', { exact: true }).setInputFiles({ name: 'scan.png', mimeType: 'image/png', buffer: Buffer.from(image, 'base64') });
+    await expect(page.getByRole('status')).toContainText('Revision 1');
+    await page.getByRole('button', { name: 'Preview scan.png' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Evidence preview' });
+    await dialog.getByRole('button', { name: 'Recognize text locally' }).click();
+    await expect(dialog.getByLabel('OCR transcript')).toHaveValue(/FIELD ACCESS[\s\S]*AV123456/, { timeout: 60_000 });
+    const downloadButton = dialog.getByRole('button', { name: 'Download reviewed transcript' });
+    await expect(downloadButton).toBeDisabled();
+    await dialog.getByLabel('I compared this transcript').check();
+    await dialog.getByLabel('OCR transcript').fill('FIELD ACCESS\nTITLE AV123456\nReviewer correction');
+    await expect(downloadButton).toBeDisabled();
+    await dialog.getByLabel('I compared this transcript').check();
+    const downloaded = page.waitForEvent('download');
+    await downloadButton.click();
+    const transcript = readFileSync((await (await downloaded).path())!, 'utf8');
+    expect(transcript).toContain('NOT VERIFIED EVIDENCE');
+    expect(transcript).toMatch(/SHA-256: [a-f0-9]{64}/);
+    expect(transcript).toContain('Reference: doc:');
+    expect(transcript).toContain('Reviewer correction');
+    expect(transcript).toContain('RAW OCR OUTPUT');
+    expect(transcript).toContain('Page: image');
+    expect(external).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await dialog.locator('.ocr-review').screenshot({ path: info.outputPath(`ocr-${width}.png`) });
+    await dialog.getByRole('button', { name: 'Recognize text locally' }).click();
+    await dialog.getByRole('button', { name: 'Cancel OCR' }).click();
+    await expect(dialog).toContainText('OCR cancelled');
+    await expect(dialog.getByLabel('OCR transcript')).toHaveCount(0);
+    await dialog.getByRole('button', { name: 'Close evidence preview' }).click();
+    await expect(page.getByRole('status')).toContainText('Revision 1');
+    await context.route('**/ocr-assets/eng.traineddata.gz', route => route.abort());
+    await page.getByRole('button', { name: 'Preview scan.png' }).click();
+    await dialog.getByRole('button', { name: 'Recognize text locally' }).click();
+    await expect(dialog.getByRole('alert')).toContainText('Local OCR failed', { timeout: 30_000 });
+    await expect(dialog.getByLabel('OCR transcript')).toHaveCount(0);
+  });
+}

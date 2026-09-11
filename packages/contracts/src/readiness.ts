@@ -41,12 +41,14 @@ export interface EvidenceReadiness {
   requests: RequestReadiness[];
   referencedDocuments: ReferencedDocumentReadiness[];
   gaps: ReadinessGap[];
+  parcelCoverage: { id: string; checkedTitles: number; effectiveGrants: number; unresolvedRequests: number }[];
 }
 
 export function evaluateEvidenceReadiness(
   workflow: ConsentWorkflow,
   documents: EvidenceDocument[] = [],
   today = new Date().toISOString().slice(0, 10),
+  parcelIds: string[] = [],
 ): EvidenceReadiness {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(today)) throw new Error('Readiness date must use YYYY-MM-DD');
   const gaps: ReadinessGap[] = [];
@@ -60,6 +62,7 @@ export function evaluateEvidenceReadiness(
   if (retentionState === 'due') addGap('Project', 'retention-review-due', `Retention review was due on ${workflow.retentionReviewOn}.`);
 
   for (const title of workflow.titles) {
+    if (parcelIds.length > 1 && !title.parcelIds?.length) addGap('Titles', 'title-parcels-missing', 'Title parcel scope is not recorded.', title.id);
     if (!title.titleNumber) addGap('Titles', 'title-number-missing', 'Title number is not recorded.', title.id);
     if (!title.evidenceRef.trim()) addGap('Titles', 'title-evidence-missing', 'Title evidence reference is not recorded.', title.id);
     if (!title.evidenceDate) addGap('Titles', 'title-evidence-date-missing', 'Title evidence date is not recorded.', title.id);
@@ -85,6 +88,7 @@ export function evaluateEvidenceReadiness(
   if (!workflow.parties.length) addGap('Parties', 'parties-missing', 'No relevant parties are recorded.');
 
   const requests = workflow.consents.map(permission => {
+    if (parcelIds.length > 1 && !permission.parcelIds?.length) addGap('Requests', 'request-parcels-missing', 'Request parcel scope is not recorded.', permission.id);
     const partyName = workflow.parties.find(party => party.id === permission.partyId)?.name || 'Missing party';
     const effective = effectiveConsentStatus(permission, today);
     let state: RequestReadinessState;
@@ -105,6 +109,12 @@ export function evaluateEvidenceReadiness(
     return { id: permission.id, partyName, state, validFrom: permission.validFrom, validUntil: permission.validUntil };
   });
   if (!workflow.consents.length) addGap('Requests', 'requests-missing', 'No consent requests are recorded.');
+  if (parcelIds.length > 1) {
+    for (const parcelId of parcelIds) {
+      if (!workflow.titles.some(title => title.verification === 'checked' && title.parcelIds?.includes(parcelId))) addGap('Titles', 'parcel-title-missing', `${parcelId}: no checked title assessment is scoped to this parcel.`);
+      if (!workflow.consents.some(permission => permission.parcelIds?.includes(parcelId))) addGap('Requests', 'parcel-request-missing', `${parcelId}: no consent request is scoped to this parcel.`);
+    }
+  }
 
   for (const entry of workflow.correspondence) {
     if (!entry.date) addGap('Correspondence', 'correspondence-date-missing', 'Correspondence date is not recorded.', entry.id);
@@ -128,6 +138,12 @@ export function evaluateEvidenceReadiness(
 
   return {
     evaluatedOn: today,
+    parcelCoverage: parcelIds.map(id => {
+      const scoped = workflow.consents.filter(permission => (permission.parcelIds ?? (parcelIds.length === 1 ? parcelIds : [])).includes(id));
+      return { id, checkedTitles: workflow.titles.filter(title => title.verification === 'checked' && (title.parcelIds ?? (parcelIds.length === 1 ? parcelIds : [])).includes(id)).length,
+        effectiveGrants: scoped.filter(permission => effectiveConsentStatus(permission, today) === 'granted').length,
+        unresolvedRequests: scoped.filter(permission => effectiveConsentStatus(permission, today) !== 'granted').length };
+    }),
     counts: {
       titles: workflow.titles.length,
       checkedTitles: workflow.titles.filter(title => title.verification === 'checked').length,

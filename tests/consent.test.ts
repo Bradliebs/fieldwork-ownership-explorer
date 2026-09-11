@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createInvestigationStore } from '../apps/server/src/investigation-store.ts';
+import { investigationSchemaVersion } from '../apps/server/src/investigation-migrations.ts';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -81,7 +82,7 @@ test('v1 cases migrate without loss and the pre-upgrade backup remains restorabl
     assert.deepEqual(store.get(caseId)!.snapshot, snapshot);
     assert.deepEqual(store.get(caseId)!.workflow, emptyWorkflow());
     assert.equal(store.history(caseId).length, 1);
-    const backups = readdirSync(directory).filter(name => name.startsWith('cases.sqlite.pre-v1-to-v2.') && name.endsWith('.bak'));
+    const backups = readdirSync(directory).filter(name => name.startsWith(`cases.sqlite.pre-v1-to-v${investigationSchemaVersion}.`) && name.endsWith('.bak'));
     assert.equal(backups.length, 1);
     const item = store.addDocument(caseId, 0, 'authority.txt', 'text/plain', Buffer.from('Evidence fixture'));
     const workflow = grantedWorkflow(); workflow.consents[0].evidenceRef = `doc:${item.documents[0].id}`;

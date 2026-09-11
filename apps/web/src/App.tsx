@@ -4,7 +4,7 @@ import { OwnershipMap } from './OwnershipMap.tsx';
 import { Investigations, type InvestigationDraft } from './Investigations.tsx';
 import { SalesEvidence } from './SalesEvidence.tsx';
 import { api } from './api.ts';
-import { salesForParcel, type SalesRelease } from '../../../packages/contracts/src/sales.ts';
+import { salesForParcel, salesForParcels, type SalesRelease } from '../../../packages/contracts/src/sales.ts';
 import { parcelStatus, type Parcel, type PilotManifest, type ReviewStatus } from '../../../packages/contracts/src/ownership.ts';
 
 export function App() {
@@ -16,6 +16,7 @@ export function App() {
   const [salesOnly, setSalesOnly] = useState(false);
   const [token, setToken] = useState('');
   const [selected, setSelected] = useState<string | null>(null);
+  const [siteIds, setSiteIds] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const deferredQuery = useDeferredValue(query);
   const [filter, setFilter] = useState('all');
@@ -25,7 +26,7 @@ export function App() {
   const [investigationDirty, setInvestigationDirty] = useState(false);
   function navigate(next: typeof view) {
     if (next === view) return;
-    if (investigationDirty && !window.confirm('Discard unsaved investigation changes?')) return;
+    if (investigationDirty && !window.confirm('Leave this investigation? Only completed draft checkpoints can be recovered.')) return;
     setInvestigationDirty(false); setInvestigationDraft(null); setView(next);
   }
   const [error, setError] = useState('');
@@ -52,6 +53,7 @@ export function App() {
   useEffect(() => {
     const controller = new AbortController();
     setSales(undefined); setSalesOnly(false);
+    setSiteIds([]);
     setParcels([]); setManifest(null); setSelected(null); setQuery(''); setFilter('all'); setInterest('all'); setReason(''); setMessage(''); setResultLimit(100);
     void load(controller.signal);
     return () => controller.abort();
@@ -130,6 +132,7 @@ export function App() {
           <label>Interest<select aria-label="Interest" value={interest} onChange={event => setInterest(event.target.value)}><option value="all">All interests</option>{['freehold', 'leasehold', 'managed', 'occupied'].map(value => <option key={value} value={value}>{value}</option>)}</select></label></div>
         </div>
         <div className="results-heading"><span>{loading ? 'Loading records' : `${visible.length} parcels`}</span><button title="Export filtered parcels as GeoJSON" aria-label="Export visible parcels" disabled={!visible.length} onClick={() => void exportRecords(visible.map(parcel => parcel.id))}><ArrowDownToLine size={16} /></button></div>
+        {!!siteIds.length && <div className="results-heading"><span>{siteIds.length} site parcels selected</span><button title="Clear site selection" aria-label="Clear site selection" onClick={() => setSiteIds([])}><X size={16} /></button></div>}
         <div className="results">{visible.slice(0, resultLimit).map(parcel => <button className={`parcel-row ${selected === parcel.id ? 'selected' : ''}`} key={parcel.id} onClick={() => select(parcel.id)}>
           <div className="row-meta"><span className="mono">{parcel.id}</span><span className={`badge ${parcelStatus(parcel)}`}>{parcelStatus(parcel)}</span></div>
           <strong>{parcel.label}</strong><span className="owner-name">{parcel.links.filter(link => link.review !== 'rejected').flatMap(link => link.proprietors).join(' / ') || 'Ownership unknown'}</span>
@@ -148,7 +151,11 @@ export function App() {
           <form className="review-form" onSubmit={event => { event.preventDefault(); void review(link.id, 'reviewed'); }}><h3>Review decision</h3><label>Reviewer<input aria-label="Reviewer" required maxLength={100} value={reviewer} onChange={event => setReviewer(event.target.value)} /></label><label>Evidence notes<textarea aria-label="Evidence notes" required maxLength={2000} rows={3} value={reason} onChange={event => setReason(event.target.value)} /></label><div className="review-actions"><button className="primary" disabled={saving || !reason.trim() || !reviewer.trim()} type="submit"><Check size={15} />{saving ? 'Saving' : 'Mark reviewed'}</button><button type="button" disabled={saving || !reason.trim() || !reviewer.trim()} onClick={() => void review(link.id, 'rejected')}><X size={15} />Reject</button></div>{link.review !== 'pending' && <button type="button" className="reopen" disabled={saving || !reason.trim() || !reviewer.trim()} onClick={() => void review(link.id, 'pending')}><ArrowLeft size={14} />Reopen review</button>}</form>
         </section>)}{message && <p role="status" className="success-message">{message}</p>}</div>
         {dataset === 'pilot' && <div className="parcel-sales"><SalesEvidence sales={salesForParcel(sales, current.source?.inspireId ?? '')} /></div>}
-        <div className="detail-footer">{dataset === 'pilot' && manifest && <button onClick={() => { setInvestigationDraft({ parcel: current, manifest, sales: salesForParcel(sales, current.source?.inspireId ?? '') }); setView('investigations'); }}><FolderOpen size={16} />Start investigation</button>}<button onClick={() => void exportRecords([current.id])}><ArrowDownToLine size={16} />{dataset === 'pilot' ? 'Export parcel GeoJSON' : 'Export synthetic GeoJSON'}</button></div>
+        {dataset === 'pilot' && <label className="site-selection"><input type="checkbox" checked={siteIds.includes(current.id)} disabled={!siteIds.includes(current.id) && siteIds.length >= 49} onChange={event => setSiteIds(previous => event.target.checked ? [...previous, current.id] : previous.filter(id => id !== current.id))} />Include {current.id} in site investigation</label>}
+        <div className="detail-footer">{dataset === 'pilot' && manifest && <button onClick={() => {
+          const included = [current, ...siteIds.filter(id => id !== current.id).map(id => parcels.find(parcel => parcel.id === id)!).filter(Boolean)];
+          setInvestigationDraft({ parcel: current, ...(included.length > 1 ? { parcels: included } : {}), manifest, sales: salesForParcels(sales, included.map(parcel => parcel.source!.inspireId)) }); setView('investigations');
+        }}><FolderOpen size={16} />Start investigation</button>}<button onClick={() => void exportRecords([current.id])}><ArrowDownToLine size={16} />{dataset === 'pilot' ? 'Export parcel GeoJSON' : 'Export synthetic GeoJSON'}</button></div>
       </aside>}
     </main>}
   </div>;

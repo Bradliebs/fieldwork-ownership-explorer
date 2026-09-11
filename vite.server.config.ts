@@ -16,6 +16,7 @@ export default defineConfig({
         main: resolve(root, 'apps/server/src/main.ts'),
         'backup-cli': resolve(root, 'apps/server/src/backup-cli.ts'),
         'release-cli': resolve(root, 'apps/server/src/release-cli.ts'),
+        'provider-cli': resolve(root, 'apps/server/src/provider-cli.ts'),
       },
       output: { entryFileNames: '[name].js' },
     },

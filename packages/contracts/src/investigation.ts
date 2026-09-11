@@ -6,6 +6,7 @@ export interface InvestigationSnapshot {
   dataset: 'pilot';
   releaseSha256: string;
   parcel: Parcel;
+  parcels?: Parcel[];
   manifest: PilotManifest;
   sales?: SalesRelease;
 }
@@ -42,4 +43,15 @@ export interface InvestigationEvent {
   revision: number;
   action: 'created' | 'updated' | 'document added';
   at: string;
+}
+
+export interface RecoveryDraft {
+  id: string;
+  sequence: number;
+  operationId: string;
+  investigationId: string | null;
+  baseRevision: number | null;
+  updatedAt: string;
+  edit: InvestigationEdit;
+  snapshot: InvestigationSnapshot;
 }

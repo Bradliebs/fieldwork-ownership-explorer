@@ -18,12 +18,33 @@ project edits. Saving removes the warning, and saved edits survive reload and
 tab closure/reopening. Confirming reload discards unsaved edits without changing
 the saved revision.
 
-Drafts remain in memory only. These checks do not establish recovery after a
-browser crash, forced termination, power loss or browser session restoration.
-Browsers may suppress departure warnings, particularly without prior user
-interaction or during mobile process termination. Accepting departure loses
-unsaved work. Do not treat these passing checks as automatic draft recovery or
-completion of the interrupted-work pilot.
+These departure checks predate durable draft checkpoints. They still establish
+that opening a saved case after departure shows its saved revision, not an
+automatically applied recovery draft. Browsers may suppress departure warnings;
+uncheckpointed changes can still be lost. The checkpoint tests below cover
+explicit recovery, not completion of the interrupted-work pilot.
+
+### Automated draft checkpoint checks
+
+Seven Chromium checks in [draft-recovery.spec.ts](../tests/e2e/draft-recovery.spec.ts)
+passed on 2026-09-11, including the corrected closed-tab check on rerun. New and
+existing drafts recover after reload at 1440 px and 390 px. Reports remain
+unavailable until an explicit case save, which clears the editor's recovery copy.
+Failed checkpoint writes are visible without claiming a saved case revision.
+An empty title and unfinished email survive tab closure; discard requires
+confirmation. A stale recovered draft cannot overwrite a newer saved revision.
+
+[Draft storage checks](../tests/draft-recovery.test.ts) verify version-2 migration
+with a version-2 safety backup, checkpoint persistence, authenticated writes,
+bounded form validation, source snapshots and rejection of stale or closed writes.
+[Backup checks](../tests/backup.test.ts) include draft content in restoration.
+The HTTP server restart check below now also preserves an acknowledged checkpoint
+across forced process termination and later launches.
+
+Only acknowledged checkpoints are recoverable. This does not establish recovery
+of keystrokes inside the debounce interval, pending uploads, a checkpoint write
+interrupted inside COMMIT, physical power loss or an unavailable local service.
+Checkpoint content is private local data and is retained in database backups.
 
 ### Automated save recovery checks
 

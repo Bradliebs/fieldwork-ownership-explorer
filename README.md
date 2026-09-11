@@ -25,6 +25,24 @@ title or rights-holder. Use the [failure-focused pilot](docs/failure-focused-pil
 to evaluate incomplete, assisted and interrupted journeys; the human pilot has
 not yet been completed.
 
+Local case tools now include recoverable drafts, multi-parcel investigations,
+evidence previews and document pickers, historical revision comparisons, and
+cross-case oversight. Saved-revision GIS downloads, reviewed local OCR and audited
+archive/legal-hold decisions are also available. The [gap closure backlog](docs/gap-closure.md) distinguishes
+these implemented workflows from licensed-data, team, mobile, service and release
+work that remains pending.
+
+### Licensed account preparation
+
+Licence profiles, secret-safe account preflight, configurable ownership CSV
+staging and archive verification are available before accounts are activated.
+Staging retains original inputs and provenance privately, requires recorded
+storage/backup/research permissions, and never promotes imported assertions into
+verified ownership or approved contacts. API connections remain disabled until
+provider-specific adapters are implemented and tested. See
+[licensed account setup](docs/licensed-accounts.md) for templates, commands,
+storage limits and the activation checklist.
+
 ## Recorded sales
 
 Enable Recorded sales only in Explore to find the four pilot parcels linked to
@@ -94,8 +112,11 @@ milestone.
 3. Reopen saved work from Investigations, including after restarting the server.
 4. Choose Report after saving, then Print / Save as PDF in the report window.
 
-Each investigation currently holds one parcel. Creation captures the authoritative
-server parcel, source manifest and release checksum. Later edits preserve that
+An investigation can hold up to 50 real parcels from the same source release.
+Use the inclusion checkbox in parcel details to collect site parcels, then start
+the investigation from its primary parcel. That primary parcel is always included.
+Creation captures authoritative server parcels, the source manifest and release
+checksum. Later edits preserve that
 snapshot; refreshing the pilot does not rewrite existing investigations. Saves
 and their audit entries share a SQLite transaction. Revision conflicts reject
 stale edits without overwriting saved work, and the editor retains the unsaved
@@ -108,14 +129,83 @@ correspondence, consent decisions and evidence references. The outline has no
 basemap or survey scale. INSPIRE IDs are not title numbers. Case assessments do
 not change the source parcel's unknown ownership status or its exported links.
 Synthetic parcels cannot create investigations. There is no automated owner
-lookup, automatic title linking or multi-parcel case support.
+lookup or automatic title linking. Existing single-parcel cases remain compatible.
+The parcel set is fixed at creation; create a separate case for a changed site.
+In multi-parcel cases, checked titles and sent or decided requests require explicit
+parcel scope. A granted permission cannot exceed its associated title's parcel
+scope. Readiness flags parcels without a checked title or scoped request; this
+does not establish complete legal coverage. Sales linked to several site parcels
+are captured once per transaction, without allocating their price to each parcel.
+
+### History and oversight
+
+Expand Compare saved revisions to inspect before/after values or the full recorded
+revision. Comparisons match workflow records and documents by identifier and do
+not replace unsaved editor values. Historical document lists reflect the selected
+revision. Source snapshots stay immutable. Historical views show recorded facts,
+not newly verified evidence or a mechanism for erasing history.
+
+Case oversight lists saved cases with factual gaps, unanswered requests, expired
+grants, grants expiring within 30 days, missing dates, and retention reviews due.
+Search by case name or parcel identifier and open the exact case for review.
+The evaluation date is shown; refresh to obtain current saved records. No email,
+background alert, automated permission decision or deletion is triggered.
+
+### GIS exchange
+
+Save the case, choose GeoPackage or GeoJSON, and use Download saved case GIS.
+Downloads bind to the saved revision and preserve WGS 84 longitude/latitude
+coordinates, polygon holes, INSPIRE identifiers, source date, URL, licence,
+attribution, transform and checksum. Ownership remains unknown.
+
+GeoPackage contains `parcels`, `case_source`, `title_scope` and `request_scope`
+tables. Scope tables contain recorded identifiers and statuses, not evaluated
+permission or ownership conclusions. Legacy single-parcel scope is preserved;
+unscoped multi-parcel records are not assigned invented geometry. GeoJSON contains
+the parcel features and provenance. Neither format includes contact routes, case
+notes, evidence bytes or sale addresses. Share exports only within permitted terms.
+
+Automated checks cover SQLite integrity, GeoPackage headers, coordinate and hole
+round-trips, revision binding and browser downloads. ArcGIS Pro/QGIS desktop
+acceptance, GIS re-import and multipart support remain pending; current source
+parcels are polygons, not multipart features.
+
+### Records lifecycle
+
+Use the Records tab to record a reviewer, review date and decision reason, archive
+or reopen a case, place a legal hold or record its release, and set the next review
+date. Hold placement requires a reason; release requires an explicit release
+reason. An active hold cannot retain a release reason from an earlier decision.
+Review dates cannot move backwards relative to the preceding lifecycle decision.
+
+An archived case permits lifecycle/review-date decisions but rejects ordinary
+edits and new attachments. Save reopening as a separate decision before editing.
+Reports and oversight show lifecycle status; previous decisions remain in revision
+history. Reviewer names are assertions entered by the local operator, not
+authenticated identities. A hold does not freeze all case editing or prevent
+someone with filesystem access from changing data. There is no destructive
+deletion, redaction or physical-erasure guarantee. Those require an approved policy
+covering history, recovery drafts, exports and backups.
 
 ### Unsaved work and recovery
 
-Drafts remain in browser memory only. Save before closing or reloading the page.
-Cancelling a browser departure warning retains the draft, but browsers may
-suppress that warning. Accepting departure, browser crashes and forced browser
-termination can lose unsaved work; there is no automatic draft restoration.
+The editor checkpoints incomplete form values in the local SQLite database after
+400 ms without another edit. A checkpoint is separate from a saved case revision
+and is never used for a report or request draft. Wait for `Draft checkpoint saved
+locally` before leaving; changes made since the last successful checkpoint can
+still be lost. Failed checkpoints remain visible and leave the editor intact.
+
+After reload or tab closure, open Investigations and choose a recovery draft.
+Recovery requires an explicit action and preserves the original base revision and
+creation operation ID. A recovered stale draft cannot overwrite a newer saved
+case. Successful case saves and explicit reopening clear that editor's checkpoint;
+other editor drafts remain separate. Discard controls remove a recovery draft
+without changing saved case revisions. Up to 100 active drafts are retained.
+
+Checkpoint content is confidential, unencrypted local data included in backups.
+Discarding a draft does not erase backup copies or guarantee physical erasure of
+SQLite pages. Drafts do not include pending file uploads. The local service must be
+running for checkpointing and recovery; browser warnings are still best-effort.
 
 A failed save leaves the current draft in the editor. A lost response does not
 prove that the write failed: the server may already have committed it. Identical
@@ -123,7 +213,8 @@ creation retries reuse the operation ID; updates and uploads are not automatical
 retried. A stale revision prevents a retry from adding another update or attachment.
 Preserve any unsaved edits before choosing Reopen saved version, which replaces
 the editor contents. Inspect saved attachments before uploading again: a new upload
-after reopening can add another copy. This is not duplicate-file detection.
+after reopening is checked against existing file hashes. Retaining identical
+bytes requires explicit confirmation and creates a separate document audit entry.
 
 Automated checks cover rejected saves/uploads, committed writes with lost
 responses, and forced process termination immediately before and after SQLite
@@ -154,7 +245,8 @@ launcher recovery, power-loss or disk-full safety, or completion of the human pi
    awaiting-response status. Log emails, letters, calls and meetings in
    Correspondence, with source references where available.
 6. Upload the response and supporting evidence in Documents after saving the
-   case. Use the displayed `doc:<id>` reference in the relevant evidence field,
+   case. Select the attached document in the relevant evidence picker, use its
+   displayed `doc:<id>` reference in the evidence field,
    or record a reference to your controlled document-management system.
 7. Record the decision, response date, signatory, scope, validity and conditions.
    Granted consent requires a checked title covering all or part of the parcel,
@@ -176,9 +268,37 @@ Documents accept PDF, PNG, JPEG or plain text, up to 3 MB each and 50 per case.
 They are stored in SQLite, not the public asset directory, with a SHA-256 checksum
 and upload date. Downloads are case-scoped, attachment-only and not cached. Basic
 file-type checks are not malware scanning; inspect files through your company's
-approved security process. There is no document preview or deletion control.
-Removed workflow records remain in the database audit history. The on-screen
-history lists revision, action and date, not a full historical-record viewer.
+approved security process. There is no document deletion control.
+Removed workflow records remain in the database audit history.
+
+Preview opens text, PNG/JPEG images and PDF pages locally after checking the
+recorded size and SHA-256 hash. Text stays inert; PDF.js renders page canvases
+without document scripting, interactive forms or annotation actions. Fonts and
+decoders are bundled, not downloaded from a third party. PDF previews are limited
+to 200 pages, 20 seconds per load/page operation and 8 million rendered pixels per
+page. Images are limited to 16 million pixels and 8,192 pixels per dimension.
+Unsupported, encrypted, oversized or damaged files produce a visible failure;
+the original remains available for download. Previews are not signature validation,
+malware scanning, or a guarantee that every original annotation is displayed.
+
+### Reviewed local OCR
+
+In an image or PDF preview, choose Recognize text locally. Tesseract.js 7 and the
+English language model are bundled; evidence is not sent to a third party. OCR
+processes one image or PDF page at a time, using at most four million input pixels
+and 4,096 pixels per dimension. Larger images are downsampled. A 60-second limit,
+Cancel OCR and closing the preview stop the worker job. Browser resource controls
+are not a hard operating-system memory quota. Handwriting, other languages,
+poor scans, rotated text and complex layouts have not been qualified.
+
+Recognized text is unverified. Engine confidence is not an accuracy guarantee.
+Compare the transcript with the original, correct errors, and explicitly confirm
+the comparison before downloading. Editing again clears that confirmation. The
+text download retains document ID/hash, image/page reference, recognition date,
+engine details, reviewed text and raw output. The reviewer confirmation is not an
+authenticated signature. No case fields, title checks or consent decisions change
+automatically. Transcripts are not checkpointed; closing the preview loses them.
+Attach a reviewed transcript through Documents when it belongs in case history.
 
 Local investigations are stored in `.local/investigations.sqlite` using Node's
 built-in SQLite API. Node 24.13.1 emits an experimental SQLite warning. The database
@@ -189,9 +309,10 @@ Keep this local workspace and any reports within your intended access boundary.
 Database upgrades run as ordered, checksum-identified migrations. Before an
 upgrade, the app creates and validates a fresh versioned backup beside the
 database, such as
-`.local/investigations.sqlite.pre-v1-to-v2.<timestamp>-<id>.bak`. Existing notes,
+`.local/investigations.sqlite.pre-v2-to-v3.<timestamp>-<id>.bak`. Existing notes,
 revisions and source snapshots are preserved; version 1 cases receive an empty
-consent workflow. Startup rejects unknown versions, incomplete or altered
+consent workflow, and version 3 adds separate recovery drafts. Startup rejects
+unknown versions, incomplete or altered
 migration history, failed SQLite integrity checks and broken foreign-key
 references. Migration rollback, retry and reopening a pre-upgrade backup are
 covered by automated tests. Upgrade backups are not ongoing backup protection.

@@ -4,8 +4,10 @@ const text = z.string().max(2000);
 const short = z.string().max(200);
 const date = z.string().refine(value => value === '' || (/^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value), 'Use a valid calendar date');
 const id = z.string().uuid();
+const parcelScope = z.array(z.string().regex(/^INSPIRE-[0-9]+$/)).max(50).optional();
 const titleSchema = z.object({
   id, titleNumber: z.string().regex(/^[A-Z]{0,3}[0-9]{1,9}$/, 'Enter a title number, not an INSPIRE ID'),
+  parcelIds: parcelScope,
   tenure: z.enum(['freehold', 'leasehold', 'other']), evidenceRef: text, evidenceDate: date,
   relationship: z.enum(['unconfirmed', 'whole', 'part', 'related']), extentNotes: text,
   verification: z.enum(['unverified', 'checked']), reviewedBy: short, reviewedOn: date,
@@ -19,6 +21,7 @@ const partySchema = z.object({
 }).strict();
 const permissionSchema = z.object({
   id, partyId: id, activities: text, landScope: text,
+  parcelIds: parcelScope,
   status: z.enum(['not requested', 'awaiting response', 'granted', 'refused', 'revoked']),
   requestedOn: date, responseOn: date, validFrom: date, validUntil: date,
   conditions: text, signatory: short, evidenceRef: text,
@@ -29,12 +32,28 @@ const correspondenceSchema = z.object({
   summary: text.refine(value => Boolean(value.trim()), 'Correspondence summary is required'), evidenceRef: text,
 }).strict();
 
-export const workflowSchema = z.object({
+const workflowFields = {
   project: short, requester: short, replyAddress: text, retentionReviewOn: date,
+  lifecycle: z.object({ state: z.enum(['active', 'archived']), legalHold: z.boolean(), holdReason: text,
+    releaseReason: text, reviewedBy: short, reviewedOn: date, decisionReason: text }).strict().optional(),
   titles: z.array(titleSchema).max(30), parties: z.array(partySchema).max(50),
   consents: z.array(permissionSchema).max(100), correspondence: z.array(correspondenceSchema).max(200),
-}).strict().superRefine((workflow, context) => {
+};
+
+export const draftWorkflowSchema = z.object({
+  ...workflowFields,
+  titles: z.array(titleSchema.extend({ titleNumber: short })).max(30),
+  parties: z.array(partySchema.extend({ name: short, email: z.string().max(254) })).max(50),
+  consents: z.array(permissionSchema.extend({ partyId: z.union([id, z.literal('')]) })).max(100),
+  correspondence: z.array(correspondenceSchema.extend({ partyId: z.union([id, z.literal('')]), date, summary: text })).max(200),
+}).strict();
+
+export const workflowSchema = z.object(workflowFields).strict().superRefine((workflow, context) => {
   const fail = (message: string) => context.addIssue({ code: 'custom', message });
+  const lifecycle = workflow.lifecycle;
+  if (lifecycle && (!lifecycle.reviewedBy.trim() || !lifecycle.reviewedOn || !lifecycle.decisionReason.trim())) fail('Lifecycle decisions require a reviewer, review date and reason');
+  if (lifecycle?.legalHold && !lifecycle.holdReason.trim()) fail('Legal hold requires a recorded reason');
+  if (lifecycle?.legalHold && lifecycle.releaseReason.trim()) fail('An active legal hold cannot carry a release reason');
   const allIds = [...workflow.titles, ...workflow.parties, ...workflow.consents, ...workflow.correspondence].map(record => record.id);
   if (new Set(allIds).size !== allIds.length) fail('Record identifiers must be unique');
   for (const title of workflow.titles) {
@@ -84,4 +103,27 @@ export function effectiveConsentStatus(permission: PermissionRecord, today = new
 export function validateDocumentReferences(workflow: ConsentWorkflow, documents: EvidenceDocument[]) {
   const references = [...workflow.titles.map(title => title.evidenceRef), ...workflow.parties.map(party => party.authorityEvidence), ...workflow.consents.map(permission => permission.evidenceRef), ...workflow.correspondence.map(entry => entry.evidenceRef)];
   for (const reference of references) if (reference.startsWith('doc:') && !documents.some(document => reference === `doc:${document.id}`)) throw new Error('Evidence references a missing case document');
+}
+
+export function validateParcelScope(workflow: ConsentWorkflow, parcelIds: string[]) {
+  for (const record of [...workflow.titles, ...workflow.consents]) {
+    if (record.parcelIds && (new Set(record.parcelIds).size !== record.parcelIds.length || record.parcelIds.some(parcelId => !parcelIds.includes(parcelId)))) throw new Error('Parcel scope references a missing or repeated case parcel');
+  }
+  if (parcelIds.length < 2) return;
+  for (const title of workflow.titles) {
+    if (title.verification === 'checked' && !title.parcelIds?.length) throw new Error('Parcel scope is required for each checked title in a multi-parcel case');
+  }
+  for (const permission of workflow.consents) {
+    if (permission.status !== 'not requested' && !permission.parcelIds?.length) throw new Error('Parcel scope is required for each sent request or decision in a multi-parcel case');
+    if (permission.status !== 'granted') continue;
+    const party = workflow.parties.find(record => record.id === permission.partyId);
+    const title = workflow.titles.find(record => record.id === party?.titleId);
+    if (permission.parcelIds?.some(parcelId => !title?.parcelIds?.includes(parcelId))) throw new Error('Parcel scope of granted consent exceeds the checked title assessment');
+  }
+}
+
+export function validateLifecycleChange(previous: ConsentWorkflow, next: ConsentWorkflow) {
+  if (previous.lifecycle && !next.lifecycle) throw new Error('Lifecycle record cannot be removed; record a new decision');
+  if (previous.lifecycle?.legalHold && !next.lifecycle?.legalHold && !next.lifecycle?.releaseReason.trim()) throw new Error('Lifecycle hold release requires a recorded release reason');
+  if (JSON.stringify(previous.lifecycle) !== JSON.stringify(next.lifecycle) && next.lifecycle?.reviewedOn && previous.lifecycle?.reviewedOn && next.lifecycle.reviewedOn < previous.lifecycle.reviewedOn) throw new Error('Lifecycle review date cannot precede the previous decision');
 }

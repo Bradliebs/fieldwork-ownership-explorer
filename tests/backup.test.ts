@@ -26,6 +26,8 @@ test('verified backup restores investigations, documents and review journal with
     let store = createInvestigationStore(join(sourceRoot, 'investigations.sqlite'));
     const sourceCase = store.create({ name: 'Source case', question: 'Who owns it?', notes: 'Preserve this evidence.' }, snapshot, 'source-case');
     store.addDocument(sourceCase.id, sourceCase.revision, 'evidence.txt', 'text/plain', Buffer.from('source evidence'));
+    store.checkpoint({ id: 'backup-draft', sequence: 1, operationId: 'backup-operation', investigationId: sourceCase.id, baseRevision: 1,
+      snapshot, edit: { name: 'Unfinished case', question: '', notes: 'Draft in backup' } });
     store.close();
     createStore(join(sourceRoot, 'demo-reviews.jsonl')).save({
       parcelId: 'DEMO-002', linkId: 'demo-link-2', revision: 0, review: 'reviewed',
@@ -59,6 +61,7 @@ test('verified backup restores investigations, documents and review journal with
       assert.equal(store.get('source-case')!.notes, 'Preserve this evidence.');
       const document = store.get('source-case')!.documents[0];
       assert.equal(store.document('source-case', document.id)!.content.toString(), 'source evidence');
+      assert.equal(store.drafts()[0].edit.notes, 'Draft in backup');
     } finally { store.close(); }
     assert.equal(createStore(join(targetRoot, 'demo-reviews.jsonl')).parcels[1].links[0].review, 'reviewed');
 

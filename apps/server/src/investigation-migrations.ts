@@ -38,6 +38,12 @@ const migrations = [
       sha256 TEXT NOT NULL, uploaded_at TEXT NOT NULL, content BLOB NOT NULL
     );
   `),
+  migration(3, 'recovery-drafts', `
+    CREATE TABLE recovery_drafts (
+      id TEXT PRIMARY KEY, sequence INTEGER NOT NULL CHECK(sequence >= 0),
+      payload TEXT, updated_at TEXT NOT NULL
+    );
+  `),
 ];
 
 const migrationHistorySql = `CREATE TABLE schema_migrations (
@@ -65,7 +71,7 @@ function tableSignature(database: DatabaseSync, table: string): string {
 
 function validateLegacySchema(database: DatabaseSync, version: number): void {
   if (version === 0) return;
-  const tables = ['investigations', 'investigation_events', ...(version >= 2 ? ['investigation_documents'] : [])];
+  const tables = ['investigations', 'investigation_events', ...(version >= 2 ? ['investigation_documents'] : []), ...(version >= 3 ? ['recovery_drafts'] : [])];
   const reference = new DatabaseSync(':memory:');
   try {
     reference.exec('PRAGMA foreign_keys = ON');

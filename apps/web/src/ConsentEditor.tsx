@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Download, FilePlus2, Plus, Printer, Trash2 } from 'lucide-react';
+import { Download, Eye, FilePlus2, Plus, Printer, Trash2 } from 'lucide-react';
+import { DocumentPreview } from './DocumentPreview.tsx';
 import { effectiveConsentStatus, type ConsentWorkflow, type EvidenceDocument } from '../../../packages/contracts/src/consent.ts';
 import { evaluateEvidenceReadiness, type ReadinessGap } from '../../../packages/contracts/src/readiness.ts';
 
@@ -11,7 +12,20 @@ function Choice({ label, value, values, onChange }: { label: string; value: stri
 }
 const options = (values: string[]) => values.map(value => ({ value, label: value }));
 
+function EvidenceReference({ label, value, documents, onChange }: { label: string; value: string; documents: EvidenceDocument[]; onChange: (value: string) => void }) {
+  const selected = documents.find(document => value === `doc:${document.id}`);
+  return <div className="evidence-reference"><Field label={label} value={value} multiline onChange={onChange} />
+    {!!documents.length && <Choice label={`${label.replace(' evidence reference', '')} document`} value={selected?.id ?? ''} values={[{ value: '', label: 'External or manual reference' }, ...documents.map(document => ({ value: document.id, label: document.name }))]} onChange={id => onChange(id ? `doc:${id}` : '')} />}
+  </div>;
+}
+
+function ParcelScope({ label, parcelIds, selected, onChange }: { label: string; parcelIds: string[]; selected?: string[]; onChange: (ids: string[]) => void }) {
+  if (parcelIds.length < 2) return null;
+  return <fieldset aria-label={label} tabIndex={-1} className="parcel-scope"><legend>{label}</legend>{parcelIds.map(id => <label key={id}><input type="checkbox" checked={selected?.includes(id) ?? false} onChange={event => onChange(event.target.checked ? [...(selected ?? []), id] : (selected ?? []).filter(item => item !== id))} />{id}</label>)}</fieldset>;
+}
+
 const gapFields: Record<string, string> = {
+  'title-parcels-missing': 'Title parcel scope', 'request-parcels-missing': 'Request parcel scope',
   'project-name-missing': 'Project name', 'requester-missing': 'Requesting company and contact',
   'reply-address-missing': 'Reply address or email', 'retention-review-missing': 'Retention review date', 'retention-review-due': 'Retention review date',
   'title-number-missing': 'Title number', 'title-evidence-missing': 'Title evidence reference', 'title-evidence-date-missing': 'Title evidence date',
@@ -28,12 +42,15 @@ const gapFields: Record<string, string> = {
   'correspondence-summary-missing': 'Correspondence summary', 'correspondence-evidence-missing': 'Correspondence evidence reference',
 };
 
-export function ConsentEditor({ value, onChange, disabled, savedId, savedReady, documents, onUpload, onRequest }: {
+export function ConsentEditor({ value, onChange, disabled, archived = false, savedId, savedReady, documents, parcelIds = [], onUpload, onRequest }: {
   value: ConsentWorkflow; onChange: (value: ConsentWorkflow) => void; disabled: boolean;
+  archived?: boolean;
   savedId?: string; savedReady: boolean; documents: EvidenceDocument[];
+  parcelIds?: string[];
   onUpload: (file: File) => void; onRequest: (id: string) => void;
 }) {
   const [tab, setTab] = useState('Project');
+  const [preview, setPreview] = useState<EvidenceDocument | null>(null);
   const [focusGap, setFocusGap] = useState<ReadinessGap | null>(null);
   const fields = useRef<HTMLFieldSetElement>(null);
   useEffect(() => {
@@ -58,7 +75,11 @@ export function ConsentEditor({ value, onChange, disabled, savedId, savedReady, 
     if (index >= 0) return `${gap.section === 'Requests' ? 'Request' : 'Correspondence'} ${index + 1}: ${value.parties.find(party => party.id === records[index].partyId)?.name || 'Missing party'}`;
     return gap.section;
   }
-  const readiness = evaluateEvidenceReadiness(value, documents);
+  const readiness = evaluateEvidenceReadiness(value, documents, undefined, parcelIds);
+  const lifecycle = value.lifecycle ?? { state: 'active', legalHold: false, holdReason: '', releaseReason: '', reviewedBy: '', reviewedOn: '', decisionReason: '' };
+  function updateLifecycle(patch: Partial<NonNullable<ConsentWorkflow['lifecycle']>>) {
+    onChange({ ...value, lifecycle: { ...lifecycle, ...patch } });
+  }
   const gapSections = [...new Set(readiness.gaps.map(gap => gap.section))];
   const parties = [{ value: '', label: 'Select party' }, ...value.parties.map(party => ({ value: party.id, label: party.name || 'Unnamed party' }))];
   function remove(key: 'titles' | 'parties' | 'consents' | 'correspondence', id: string) {
@@ -71,14 +92,28 @@ export function ConsentEditor({ value, onChange, disabled, savedId, savedReady, 
     <section className="readiness-summary" aria-labelledby="readiness-heading">
       <div className="readiness-heading"><div><h4 id="readiness-heading">Evidence readiness</h4><p>Factual record check as at {readiness.evaluatedOn}</p></div><strong>{readiness.counts.unresolvedGaps} gaps</strong></div>
       <div className="readiness-counts"><span>{readiness.counts.checkedTitles}/{readiness.counts.titles} titles checked</span><span>{readiness.counts.approvedContacts}/{readiness.counts.parties} contact uses approved</span><span>Retention: {readiness.retention.state}{readiness.retention.reviewOn ? ` ${readiness.retention.reviewOn}` : ''}</span></div>
+      {parcelIds.length > 1 && <ul aria-label="Parcel evidence coverage">{readiness.parcelCoverage.map(item => <li key={item.id}>{item.id}: {item.checkedTitles} checked titles / {item.effectiveGrants} effective recorded grants / {item.unresolvedRequests} unresolved requests</li>)}</ul>}
       {!!readiness.requests.length && <ul className="readiness-requests">{readiness.requests.map(request => <li key={request.id}><span>{request.partyName}</span><strong>{request.state}</strong>{(request.validFrom || request.validUntil) && <span>{request.validFrom || 'No start'} to {request.validUntil || 'No end'}</span>}</li>)}</ul>}
       {!!gapSections.length && <div className="readiness-links" aria-label="Sections with evidence gaps">{gapSections.map(section => <button type="button" key={section} onClick={() => setTab(section)}>{section}<span>{readiness.gaps.filter(gap => gap.section === section).length}</span></button>)}</div>}
       {!!gapSections.length && <details className="readiness-details"><summary>Gap details ({readiness.gaps.length})</summary><ul>{readiness.gaps.map(gap => <li key={`${gap.section}-${gap.recordId ?? 'section'}-${gap.code}`}><button type="button" onClick={() => { setTab(gap.section); setFocusGap(gap); }}>{gapLabel(gap)}: {gap.message}</button></li>)}</ul></details>}
       <p className="muted">Checks cover recorded information only; additional titles or rights-holders may be missing. This is not a legal or works approval.</p>
       {!gapSections.length && <p className="muted">No factual gaps detected in recorded information.</p>}
     </section>
-    <nav className="case-tabs" aria-label="Case sections">{['Project', 'Titles', 'Parties', 'Requests', 'Correspondence', 'Documents'].map(name => <button type="button" key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>{name}</button>)}</nav>
-    <fieldset ref={fields} tabIndex={-1} disabled={disabled} className="case-fields"><legend>{tab}</legend>
+    <nav className="case-tabs" aria-label="Case sections">{['Project', 'Titles', 'Parties', 'Requests', 'Correspondence', 'Documents', 'Records'].map(name => <button type="button" key={name} aria-pressed={tab === name} onClick={() => setTab(name)}>{name}</button>)}</nav>
+    <fieldset ref={fields} tabIndex={-1} disabled={disabled || (archived && tab !== 'Records' && tab !== 'Documents')} className="case-fields"><legend>{tab}</legend>
+      {tab === 'Records' && <>
+        <p className="case-caution">{archived ? 'Archived case. Ordinary edits require a separately saved reopen decision. ' : ''}Retention reviews and holds do not erase records. Reviewer names are recorded assertions, not authenticated identities.</p>
+        <div className="case-grid">
+          <Choice label="Record state" value={lifecycle.state} values={options(['active', 'archived'])} onChange={state => updateLifecycle({ state: state as typeof lifecycle.state })} />
+          <label className="records-hold"><input type="checkbox" checked={lifecycle.legalHold} onChange={event => updateLifecycle({ legalHold: event.target.checked, releaseReason: '' })} />Legal hold</label>
+          <Field label="Hold reason" value={lifecycle.holdReason} multiline onChange={holdReason => updateLifecycle({ holdReason })} />
+          <Field label="Hold release reason" value={lifecycle.releaseReason} multiline onChange={releaseReason => updateLifecycle({ releaseReason })} />
+          <Field label="Records reviewed by" value={lifecycle.reviewedBy} onChange={reviewedBy => updateLifecycle({ reviewedBy })} />
+          <Field label="Records reviewed on" value={lifecycle.reviewedOn} type="date" onChange={reviewedOn => updateLifecycle({ reviewedOn })} />
+          <Field label="Records decision reason" value={lifecycle.decisionReason} multiline onChange={decisionReason => updateLifecycle({ decisionReason })} />
+          <Field label="Next retention review date" value={value.retentionReviewOn} type="date" onChange={retentionReviewOn => onChange({ ...value, retentionReviewOn })} />
+        </div>
+      </>}
       {tab === 'Project' && <div className="case-grid">
         <Field label="Project name" value={value.project} onChange={project => onChange({ ...value, project })} />
         <Field label="Requesting company and contact" value={value.requester} onChange={requester => onChange({ ...value, requester })} />
@@ -90,8 +125,9 @@ export function ConsentEditor({ value, onChange, disabled, savedId, savedReady, 
           const update = (patch: Partial<typeof title>) => onChange({ ...value, titles: value.titles.map(record => record.id === title.id ? { ...record, ...patch } : record) });
           return <fieldset className="case-record" data-record-id={title.id} key={title.id}><legend>Title {index + 1}</legend><div className="case-grid">
             <Field label="Title number" value={title.titleNumber} onChange={titleNumber => update({ titleNumber: titleNumber.toUpperCase() })} />
+            <ParcelScope label="Title parcel scope" parcelIds={parcelIds} selected={title.parcelIds} onChange={parcelIds => update({ parcelIds })} />
             <Choice label="Tenure" value={title.tenure} values={options(['freehold', 'leasehold', 'other'])} onChange={tenure => update({ tenure: tenure as typeof title.tenure })} />
-            <Field label="Title evidence reference" value={title.evidenceRef} multiline onChange={evidenceRef => update({ evidenceRef })} />
+            <EvidenceReference label="Title evidence reference" value={title.evidenceRef} documents={documents} onChange={evidenceRef => update({ evidenceRef })} />
             <Field label="Title evidence date" value={title.evidenceDate} type="date" onChange={evidenceDate => update({ evidenceDate })} />
             <Choice label="Parcel relationship" value={title.relationship} values={options(['unconfirmed', 'whole', 'part', 'related'])} onChange={relationship => update({ relationship: relationship as typeof title.relationship })} />
             <Field label="Extent assessment and plan reference" value={title.extentNotes} multiline onChange={extentNotes => update({ extentNotes })} />
@@ -116,7 +152,7 @@ export function ConsentEditor({ value, onChange, disabled, savedId, savedReady, 
             <Field label="Contact source and permitted-use assessment" value={party.contactSource} multiline onChange={contactSource => update({ contactSource })} />
             <Field label="Contact checked on" value={party.contactCheckedOn} type="date" onChange={contactCheckedOn => update({ contactCheckedOn })} />
             <Choice label="Commercial contact use" value={party.contactUse} values={options(['unconfirmed', 'approved'])} onChange={contactUse => update({ contactUse: contactUse as typeof party.contactUse })} />
-            <Field label="Authority evidence reference" value={party.authorityEvidence} multiline onChange={authorityEvidence => update({ authorityEvidence })} />
+            <EvidenceReference label="Authority evidence reference" value={party.authorityEvidence} documents={documents} onChange={authorityEvidence => update({ authorityEvidence })} />
             <Field label="Authority checked by" value={party.authorityCheckedBy} onChange={authorityCheckedBy => update({ authorityCheckedBy })} />
             <Field label="Authority checked on" value={party.authorityCheckedOn} type="date" onChange={authorityCheckedOn => update({ authorityCheckedOn })} />
           </div><button type="button" title="Remove party (remove related requests and correspondence first)" aria-label={`Remove party ${index + 1}`} disabled={value.consents.some(permission => permission.partyId === party.id) || value.correspondence.some(entry => entry.partyId === party.id)} onClick={() => remove('parties', party.id)}><Trash2 size={16} /></button></fieldset>;
@@ -128,6 +164,7 @@ export function ConsentEditor({ value, onChange, disabled, savedId, savedReady, 
           const update = (patch: Partial<typeof permission>) => onChange({ ...value, consents: value.consents.map(record => record.id === permission.id ? { ...record, ...patch } : record) });
           return <fieldset className="case-record" data-record-id={permission.id} key={permission.id}><legend>Consent {index + 1}: {effectiveConsentStatus(permission)}</legend><div className="case-grid">
             <Choice label="Consent party" value={permission.partyId} values={parties} onChange={partyId => update({ partyId })} />
+            <ParcelScope label="Request parcel scope" parcelIds={parcelIds} selected={permission.parcelIds} onChange={parcelIds => update({ parcelIds })} />
             <Choice label="Consent decision" value={permission.status} values={options(['not requested', 'awaiting response', 'granted', 'refused', 'revoked'])} onChange={status => update({ status: status as typeof permission.status })} />
             <Field label="Proposed activities" value={permission.activities} multiline onChange={activities => update({ activities })} />
             <Field label="Exact land scope and plan reference" value={permission.landScope} multiline onChange={landScope => update({ landScope })} />
@@ -137,7 +174,7 @@ export function ConsentEditor({ value, onChange, disabled, savedId, savedReady, 
             <Field label="Valid until" value={permission.validUntil} type="date" onChange={validUntil => update({ validUntil })} />
             <Field label="Conditions and restrictions" value={permission.conditions} multiline onChange={conditions => update({ conditions })} />
             <Field label="Signatory name and capacity" value={permission.signatory} onChange={signatory => update({ signatory })} />
-            <Field label="Consent evidence reference" value={permission.evidenceRef} multiline onChange={evidenceRef => update({ evidenceRef })} />
+            <EvidenceReference label="Consent evidence reference" value={permission.evidenceRef} documents={documents} onChange={evidenceRef => update({ evidenceRef })} />
           </div><div className="case-actions"><button type="button" disabled={!savedReady} onClick={() => onRequest(permission.id)}><Printer size={16} />Request draft</button><button type="button" title="Remove consent record" aria-label={`Remove consent ${index + 1}`} onClick={() => remove('consents', permission.id)}><Trash2 size={16} /></button></div></fieldset>;
         })}
         <button type="button" disabled={!value.parties.length || value.consents.length >= 100} onClick={() => onChange({ ...value, consents: [...value.consents, { id: crypto.randomUUID(), partyId: value.parties[0].id, activities: '', landScope: '', status: 'not requested', requestedOn: '', responseOn: '', validFrom: '', validUntil: '', conditions: '', signatory: '', evidenceRef: '' }] })}><Plus size={16} />Add consent request</button>
@@ -151,17 +188,18 @@ export function ConsentEditor({ value, onChange, disabled, savedId, savedReady, 
             <Choice label="Contact method" value={entry.method} values={options(['email', 'letter', 'phone', 'meeting', 'other'])} onChange={method => update({ method: method as typeof entry.method })} />
             <Choice label="Direction" value={entry.direction} values={options(['incoming', 'outgoing'])} onChange={direction => update({ direction: direction as typeof entry.direction })} />
             <Field label="Correspondence summary" value={entry.summary} multiline onChange={summary => update({ summary })} />
-            <Field label="Correspondence evidence reference" value={entry.evidenceRef} multiline onChange={evidenceRef => update({ evidenceRef })} />
+            <EvidenceReference label="Correspondence evidence reference" value={entry.evidenceRef} documents={documents} onChange={evidenceRef => update({ evidenceRef })} />
           </div><button type="button" title="Remove correspondence" aria-label={`Remove correspondence ${index + 1}`} onClick={() => remove('correspondence', entry.id)}><Trash2 size={16} /></button></fieldset>;
         })}
         <button type="button" disabled={!value.parties.length || value.correspondence.length >= 200} onClick={() => onChange({ ...value, correspondence: [...value.correspondence, { id: crypto.randomUUID(), partyId: value.parties[0].id, date: '', method: 'email', direction: 'incoming', summary: '', evidenceRef: '' }] })}><Plus size={16} />Add correspondence</button>
       </>}
       {tab === 'Documents' && <>
-        <label className="document-input"><FilePlus2 size={18} />Evidence document<input aria-label="Evidence document" type="file" accept=".pdf,.png,.jpg,.jpeg,.txt" disabled={!savedReady || documents.length >= 50} onChange={event => { const file = event.target.files?.[0]; if (file) onUpload(file); event.target.value = ''; }} /></label>
+        <label className="document-input"><FilePlus2 size={18} />Evidence document<input aria-label="Evidence document" type="file" accept=".pdf,.png,.jpg,.jpeg,.txt" disabled={archived || !savedReady || documents.length >= 50} onChange={event => { const file = event.target.files?.[0]; if (file) onUpload(file); event.target.value = ''; }} /></label>
         {!savedReady && <p className="muted">Save case changes before attaching files.</p>}
         <p className="muted">PDF, PNG, JPEG or text. Maximum 3 MB each, 50 documents per case. Files are retained with case history.</p>
-        {documents.map(document => <article className="case-document" key={document.id}><strong>{document.name}</strong><span>{Math.ceil(document.size / 1024)} KB / {document.uploadedAt.slice(0, 10)}</span><code>doc:{document.id}</code><span className="mono">SHA-256: {document.sha256}</span><a href={`/api/investigations/${savedId}/documents/${document.id}`}><Download size={16} />Download evidence</a></article>)}
+        {documents.map(document => <article className="case-document" key={document.id}><strong>{document.name}</strong><span>{Math.ceil(document.size / 1024)} KB / {document.uploadedAt.slice(0, 10)}</span><code>doc:{document.id}</code><span className="mono">SHA-256: {document.sha256}</span><div className="case-actions"><button type="button" title="Preview evidence" aria-label={`Preview ${document.name}`} onClick={() => setPreview(document)}><Eye size={16} /></button><a href={`/api/investigations/${savedId}/documents/${document.id}`}><Download size={16} />Download evidence</a></div></article>)}
       </>}
     </fieldset>
+    {preview && savedId && <DocumentPreview key={preview.id} caseId={savedId} document={preview} onClose={() => setPreview(null)} />}
   </section>;
 }

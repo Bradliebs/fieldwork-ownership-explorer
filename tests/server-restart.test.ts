@@ -80,6 +80,13 @@ test('real HTTP server reclaims a crash lock and preserves saved cases and evide
     assert.equal(upload.status, 200);
     const saved = await upload.json();
     assert.equal(saved.investigation.revision, 1);
+    const draftId = randomUUID();
+    const checkpoint = await request(`/api/recovery-drafts/${draftId}`, { method: 'PUT', headers, body: JSON.stringify({
+      sequence: 1, operationId: randomUUID(), investigationId: saved.investigation.id, baseRevision: 1,
+      parcelId: pilot.parcels[0].id, published: pilot.manifest.published, edit: { ...edit, notes: 'Checkpoint before server crash' },
+    }) });
+    assert.equal(checkpoint.status, 200);
+    const draft = (await checkpoint.json()).draft;
     assert.equal(first.child.kill('SIGKILL'), true);
     const crash = await first.closed;
     assert.ok(crash.signal === 'SIGKILL' || (crash.code !== null && crash.code !== 0));
@@ -96,6 +103,7 @@ test('real HTTP server reclaims a crash lock and preserves saved cases and evide
     const reopened = await request(endpoint);
     assert.equal(reopened.status, 200);
     assert.deepEqual(await reopened.json(), saved);
+    assert.deepEqual((await (await request('/api/recovery-drafts')).json()).drafts, [draft]);
     const document = saved.investigation.documents[0];
     const download = await request(`${endpoint}/documents/${document.id}`);
     assert.equal(download.status, 200);
@@ -124,6 +132,7 @@ test('real HTTP server reclaims a crash lock and preserves saved cases and evide
     servers.push(third);
     await third.ready;
     assert.deepEqual(await (await request(endpoint)).json(), updated);
+    assert.deepEqual((await (await request('/api/recovery-drafts')).json()).drafts, [draft]);
   } finally {
     for (const server of servers) {
       if (server.child.exitCode === null && server.child.signalCode === null) server.child.kill('SIGKILL');

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "licensed-ownership",
+  "provider": "Replace with contracted provider",
+  "product": "Replace with exact licensed product",
+  "service": "ownership",
+  "enabled": false,
+  "access": { "mode": "manual-file" },
+  "licence": {
+    "reference": "Replace with internal agreement reference, never a password or token",
+    "termsUrl": "https://example.invalid/licence-terms",
+    "approvedBy": "",
+    "approvedOn": null,
+    "validFrom": "2026-01-01",
+    "validUntil": "2026-12-31",
+    "purpose": "Replace with permitted business purpose",
+    "coverage": "Replace with licensed geography, record types and exclusions",
+    "permissions": {
+      "localStorage": false,
+      "backup": false,
+      "ownershipResearch": false,
+      "derivedExport": false,
+      "commercialContact": false
+    }
+  }
+}

@@ -86,9 +86,9 @@ export function OwnershipMap({ parcels, allParcels, pilot, selected, onSelect, s
     if (!ready) return;
     for (const layer of ['selected', 'selected-halo', 'selected-fill']) map.current?.setFilter(layer, ['==', ['get', 'id'], selected ?? '']);
     const parcel = allParcels.find(item => item.id === selected);
-    const extent = parcel && parcelBounds([parcel]);
+    const extent = snapshot ? parcelBounds(allParcels) : parcel && parcelBounds([parcel]);
     if (extent) map.current?.fitBounds(extent, { padding: 75, maxZoom: 18, duration: 400 });
-  }, [selected, ready, allParcels]);
+  }, [selected, ready, allParcels, snapshot]);
   useEffect(() => {
     if (!ready || fitted.current) return;
     const extent = parcelBounds(allParcels);
@@ -101,7 +101,7 @@ export function OwnershipMap({ parcels, allParcels, pilot, selected, onSelect, s
   }, [showBasemap, showParcels, ready]);
   return <section className={`map-area ${pilot ? 'pilot-map' : ''}`} aria-label={snapshot ? 'Saved parcel map' : pilot ? 'Bristol parcel map' : 'Synthetic parcel map'}>
     <div className="map-canvas" ref={container} data-testid="map" data-ready={ready} />
-    <div className="map-caption"><span className="live-dot" /> {snapshot ? 'SAVED PARCEL' : pilot ? 'BRISTOL HARBOURSIDE' : 'FIXTURE AREA'} <span>{allParcels.length} {pilot || snapshot ? 'INSPIRE polygons' : 'fictional parcels'}</span></div>
+    <div className="map-caption"><span className="live-dot" /> {snapshot ? (allParcels.length > 1 ? 'SAVED SITE' : 'SAVED PARCEL') : pilot ? 'BRISTOL HARBOURSIDE' : 'FIXTURE AREA'} <span>{allParcels.length} {pilot || snapshot ? 'INSPIRE polygons' : 'fictional parcels'}</span></div>
     {pilot && <div className="map-layers"><label><input type="checkbox" checked={showBasemap} onChange={event => setShowBasemap(event.target.checked)} />Basemap</label><label><input type="checkbox" checked={showParcels} onChange={event => setShowParcels(event.target.checked)} />Parcels</label></div>}
     <div className="map-tools">
       <button title="Zoom in" aria-label="Zoom in" onClick={() => map.current?.zoomIn()}><Plus size={18} /></button>

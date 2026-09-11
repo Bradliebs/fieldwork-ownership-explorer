@@ -60,6 +60,7 @@ test('migration history is checksummed, adopted and idempotent', () => {
       assert.deepEqual(recorded.map(row => [String(row.name), String(row.checksum)]), [
         ['investigations', '6711b4e776e91784240775f58094302b4905b5967bcbf29de99aafec8ba16b72'],
         ['consent-and-documents', 'df224178392c1981aaad5289b2eb722ec9a7c3ceeed687d3165321cfc77eee57'],
+        ['recovery-drafts', '51dddc80e1e16a3290c0aea648fb624764d244de641f4901cf0a8fe1bdce7766'],
       ]);
       database.exec('DROP TABLE schema_migrations');
     } finally { database.close(); }
@@ -67,7 +68,7 @@ test('migration history is checksummed, adopted and idempotent', () => {
     store = createInvestigationStore(path);
     store.close();
     database = new DatabaseSync(path);
-    try { assert.equal(database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get()!.count, 2); }
+    try { assert.equal(database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get()!.count, 3); }
     finally { database.close(); }
 
     store = createInvestigationStore(path);

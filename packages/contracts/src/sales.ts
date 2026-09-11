@@ -21,5 +21,9 @@ export interface SalesRelease {
 }
 
 export function salesForParcel(release: SalesRelease | undefined, inspireId: string): SalesRelease | undefined {
-  return release && { ...release, records: release.records.filter(record => record.inspireIds.includes(inspireId)) };
+  return salesForParcels(release, [inspireId]);
+}
+
+export function salesForParcels(release: SalesRelease | undefined, inspireIds: string[]): SalesRelease | undefined {
+  return release && { ...release, records: release.records.filter(record => record.inspireIds.some(inspireId => inspireIds.includes(inspireId))) };
 }
